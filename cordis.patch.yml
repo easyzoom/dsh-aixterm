@@ -1,0 +1,4 @@
+# dsh-aixterm bundle patch: inserts one host row into the profile roster.
+- insert:
+    - id: dsh-aixterm
+      name: dsh-aixterm

@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+*.bak-*
+dist/
+.env
+.env.*
+# local-only notes — not committed
+docs/.local/

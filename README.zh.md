@@ -15,10 +15,13 @@
 ## 功能（v0.1）
 
 - **保存的 SSH 会话** —— 密码 / 私钥 / ssh-agent，可命名、分组。
-- **侧边栏页面**（插件下方），含会话列表、命令控制台、SFTP 浏览。
-- **共享记录（人和 AI）** —— 每次执行（UI 记 `source: human`，工具记 `source: agent`）都记录命令、输出、退出码、时间。
-- **AI 工具** —— `aixterm_list_sessions` / `aixterm_run` / `aixterm_sftp_list` / `aixterm_test`。`aixterm_run` 在人看的同一会话里执行。
+- **侧边栏页面**（插件下方），含连接列表与真正的 **xterm.js 终端**：多标签、SSH 与本地 shell、完整键盘、自适应大小、回滚与可点击链接。
+- **SFTP 文件浏览** —— 浏览远端目录，**拖拽上传**、一键**下载**。
+- **共享交互终端（人和 AI）** —— AI 可用 `aixterm_term_open` 打开同一个 PTY，用 `aixterm_term_read` / `aixterm_term_send` 读取和发送，人看到的是同一块屏幕。
+- **共享记录（人和 AI）** —— 每次一次性执行（UI 记 `source: human`，工具记 `source: agent`）都记录命令、输出、退出码、时间。
+- **AI 工具** —— `aixterm_list_sessions` / `aixterm_run` / `aixterm_sftp_list` / `aixterm_test`，以及上面的终端三件套。
 - **凭据加密存储** —— 密码/密钥口令用 AES-256-GCM 加密落在数据目录。
+- **可配置数据目录** —— 会话文件、加密密钥、终端回滚日志同一目录（插件配置 `dataDir`，默认 `$DSH_HOME/aixterm`）。
 
 ## 安装
 
@@ -42,14 +45,15 @@ dsh plugin --profile <profile> add /path/to/dsh-aixterm
 
 ## 用法
 
-1. 打开侧边栏 **SSH 会话** 页 → **新建会话** → 填主机/端口/用户/认证 → 保存。
-2. **打开** 会话 → 输入命令回车执行，结果显示在共享记录里，带 **人 / AI** 徽标。
-3. AI 可对同一批会话调用 `aixterm_*` 工具，其执行同样进入共享记录，带 **AI** 徽标。
-4. **SFTP 列目录** 浏览远端目录。
+1. 打开侧边栏 **SSH 会话** 页 → **+ 新建** → 填主机/端口/用户/认证 → 保存，会话在终端标签页中打开。
+2. 或点 **本地终端** 打开本地 shell（PowerShell / `$SHELL`）。
+3. SSH 标签页右侧的 **文件 (SFTP)** 面板列出主目录：点文件夹进入，**把文件拖到面板上**即可上传，点 **↓** 下载。
+4. AI 可用 `aixterm_term_open` 打开同一个交互终端，用 `aixterm_term_read` / `aixterm_term_send` 读取和发送——人看到同一块屏幕。一次性命令用 `aixterm_run`，会进入共享记录并带 **人 / AI** 徽标。
 
 ## 数据与安全
 
-- 会话在 `$DSH_HOME/aixterm`（`sessions.json`），AES 密钥在 `.aixterm.key`；请把该目录视为敏感目录。
+- 会话在 `$DSH_HOME/aixterm`（`sessions.json`），AES 密钥在 `.aixterm.key`，终端回滚日志在 `terminals/`；请把该目录视为敏感目录。
+- 把插件配置 `dataDir` 指向别处即可统一迁移以上数据。
 - 路由由 DSH 的本地 web 服务提供；若要对外暴露，请自行加反向代理信任 / 鉴权。
 - 优先用**私钥**而非保存密码；密码虽加密，但密钥与数据在同一目录。
 

@@ -15,10 +15,13 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 ## Features (v0.1)
 
 - **Saved SSH sessions** — password / private-key / ssh-agent, named and grouped.
-- **Sidebar page** (under Plugins) with the session list, a command console, and SFTP browsing.
-- **Shared log (human + agent)** — every run, from the UI (`source: human`) or a tool (`source: agent`), is recorded with command, output, exit code and time.
-- **Agent tools** — `aixterm_list_sessions`, `aixterm_run`, `aixterm_sftp_list`, `aixterm_test`. The `aixterm_run` tool execs in the same session the human sees.
+- **Sidebar page** (under Plugins) with a connection list and real **xterm.js terminals**: multiple tabs, SSH and local shells, full keyboard, resize, scrollback and clickable links.
+- **SFTP file browser** — browse remote directories, **drag-and-drop upload** and one-click **download**.
+- **Shared interactive terminal (human + agent)** — the agent opens the same PTY with `aixterm_term_open` and reads/sends with `aixterm_term_read` / `aixterm_term_send`.
+- **Shared log (human + agent)** — every one-shot run, from the UI (`source: human`) or a tool (`source: agent`), is recorded with command, output, exit code and time.
+- **Agent tools** — `aixterm_list_sessions`, `aixterm_run`, `aixterm_sftp_list`, `aixterm_test`, and the terminal trio above.
 - **Secrets encrypted at rest** — passwords / key passphrases are AES-256-GCM encrypted in the data dir.
+- **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install
 
@@ -42,14 +45,15 @@ Notes:
 
 ## Usage
 
-1. Open the sidebar **SSH 会话** page → **新建会话** → fill in host / port / user / auth → save.
-2. **打开** a session → type a command and press Enter. The result appears in the shared log with a **人 / AI** badge.
-3. The agent can call the `aixterm_*` tools on the same sessions; its runs appear in the same log with an **AI** badge.
-4. **SFTP 列目录** browses a remote directory.
+1. Open the sidebar **SSH 会话** page → **+ 新建** → fill in host / port / user / auth → save. The session opens in a terminal tab.
+2. Or click **本地终端** for a local shell (PowerShell / `$SHELL`).
+3. For an SSH tab, the **文件 (SFTP)** panel on the right lists the home directory. Click a folder to enter it; **drag files onto the panel** to upload; click **↓** to download.
+4. The agent can open the same interactive terminal with `aixterm_term_open` and read/send with `aixterm_term_read` / `aixterm_term_send` — the human sees the same screen. One-shot commands use `aixterm_run` and appear in the shared log with a **人 / AI** badge.
 
 ## Data & security
 
-- Sessions live in `$DSH_HOME/aixterm` (`sessions.json`); the AES key in `.aixterm.key`. Treat that directory as sensitive.
+- Sessions live in `$DSH_HOME/aixterm` (`sessions.json`); the AES key in `.aixterm.key`; terminal scrollback logs in `terminals/`. Treat that directory as sensitive.
+- Set the plugin's `dataDir` option to store all of the above elsewhere.
 - Host routes are served by DSH's web server (loopback); add your own reverse-proxy trust / auth if exposed.
 - Prefer **private keys** over stored passwords; passwords are encrypted but the key sits in the same data dir.
 

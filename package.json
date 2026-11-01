@@ -61,6 +61,8 @@
     "url": "https://github.com/easyzoom/dsh-aixterm/issues"
   },
   "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "prepack": "node scripts/build-client.mjs",
     "test": "node --test"
   },
   "dependencies": {

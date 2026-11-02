@@ -91,7 +91,7 @@ const LIGHT_THEME = {
   brightWhite: "#8c959f",
 };
 
-const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "", proxyJump: "" };
+const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "", proxyJump: "", credentialEnv: "" };
 
 const S = {
   btn: {
@@ -1078,7 +1078,11 @@ function AixtermApp() {
     setMsg(null);
     try {
       const d = await postJson("/test", { sessionId: id });
-      setMsg(d && d.ok ? { kind: "ok", text: "连接正常" } : { kind: "err", text: (d && d.error) || "连接失败" });
+      setMsg(
+        d && d.ok
+          ? { kind: "ok", text: `连接正常${d.durationMs ? `（${d.durationMs}ms${d.jump ? "，经跳板" : ""}）` : ""}` }
+          : { kind: "err", text: (d && d.error) || "连接失败" }
+      );
     } catch (e) {
       setMsg({ kind: "err", text: String(e) });
     }
@@ -1155,7 +1159,10 @@ function AixtermApp() {
         auth: { kind: form.authKind },
       };
       if (form.authKind === "key") body.auth.keyPath = form.keyPath;
-      else if (form.authKind === "password") body.password = form.password;
+      else if (form.authKind === "password") {
+        body.password = form.password;
+        if (form.credentialEnv) body.auth.credentialEnv = form.credentialEnv;
+      }
       if (form.proxyJump) body.proxyJump = form.proxyJump;
       const d = await postJson("/sessions", body);
       if (d && d.ok) {
@@ -1576,10 +1583,16 @@ function AixtermApp() {
                 </select>
               </label>
               {form.authKind === "password" ? (
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
-                  <span style={S.muted}>密码</span>
-                  <input style={S.input} type="password" value={form.password} onChange={(e) => patch("password", e.target.value)} />
-                </label>
+                <>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                    <span style={S.muted}>密码</span>
+                    <input style={S.input} type="password" value={form.password} onChange={(e) => patch("password", e.target.value)} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                    <span style={S.muted}>凭据引用（可选：dsh 凭据服务中的名称，优先于密码）</span>
+                    <input style={S.input} value={form.credentialEnv} onChange={(e) => patch("credentialEnv", e.target.value)} placeholder="例如 X2600_SSH_PASSWORD" />
+                  </label>
+                </>
               ) : form.authKind === "key" ? (
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
                   <span style={S.muted}>私钥路径（本机绝对路径）</span>

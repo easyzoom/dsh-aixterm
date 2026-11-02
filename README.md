@@ -21,6 +21,13 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Shared log (human + agent)** — every one-shot run, from the UI (`source: human`) or a tool (`source: agent`), is recorded with command, output, exit code and time.
 - **Agent tools** — `aixterm_list_sessions`, `aixterm_run`, `aixterm_sftp_list`, `aixterm_test`, and the terminal trio above.
 - **Secrets encrypted at rest** — passwords / key passphrases are AES-256-GCM encrypted in the data dir.
+- **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`), with jump hosts and shared connections.
+- **Full SFTP management** — mkdir / rename / delete / chmod, inline text editor, and a panel that follows the terminal's cwd.
+- **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
+- **Comfort features** — session search and duplicate, terminal find (`Ctrl+F`), context menu, light/dark themes, font size, broadcast input, log export (txt/HTML).
+- **Auto-reconnect** — terminals reconnect with exponential backoff after a drop.
+- **Danger-command approval** — agent-initiated `aixterm_run` / `aixterm_term_send` calls matching a configurable pattern list wait for the human's approval, and fail closed when no approval surface exists.
+- **Credential references** — a session may name a dsh credential-service key (`credentialEnv`) instead of storing a password.
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install

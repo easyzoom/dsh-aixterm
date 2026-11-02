@@ -941,6 +941,123 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
 
 /* ------------------------------------------------------------------- sftp */
 
+function TransferPanel({ onClose }) {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch(PREFIX + "/transfers");
+        const d = await r.json();
+        if (alive && d && d.ok) setList(d.transfers || []);
+      } catch {
+        /* unavailable */
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  async function act(id, action) {
+    try {
+      await postJson("/transfers/action", { id, action });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function saveFile(task) {
+    const a = document.createElement("a");
+    a.href = PREFIX + "/transfers/file?id=" + encodeURIComponent(task.id);
+    a.download = task.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  const fmtBytes = (n) => {
+    const v = Number(n) || 0;
+    if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + " MB";
+    if (v >= 1024) return (v / 1024).toFixed(1) + " KB";
+    return v + " B";
+  };
+  const fmtSpeed = (v) => {
+    const n = Number(v) || 0;
+    if (!n) return "";
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB/s";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB/s";
+    return Math.round(n) + " B/s";
+  };
+  const statusLabel = (st) =>
+    ({ queued: "排队", running: "传输中", paused: "已暂停", done: "完成", failed: "失败", canceled: "已取消" }[st] || st);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 680, maxWidth: "94%", maxHeight: "80%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>传输队列</div>
+        <div style={{ flex: 1, overflow: "auto" }}>
+          {list.length === 0 ? (
+            <div style={S.muted}>暂无传输任务（在文件面板上传/下载会加入队列）</div>
+          ) : (
+            list.map((t) => {
+              const pct = t.size ? Math.min(100, Math.round((t.transferred / t.size) * 100)) : 0;
+              return (
+                <div key={t.id} style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <span style={{ color: t.kind === "upload" ? C.accent : C.ok }}>{t.kind === "upload" ? "↑" : "↓"}</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.remotePath || t.name}>
+                      {t.name}
+                    </span>
+                    <span style={S.muted}>{fmtBytes(t.transferred)} / {fmtBytes(t.size)}</span>
+                    <span style={{ color: t.status === "failed" ? C.danger : t.status === "done" ? C.ok : C.dim }}>
+                      {statusLabel(t.status)}
+                      {t.status === "running" && t.speed ? ` · ${fmtSpeed(t.speed)}` : ""}
+                    </span>
+                  </div>
+                  <div style={{ height: 4, background: C.border, borderRadius: 2, marginTop: 6, overflow: "hidden" }}>
+                    <div style={{ width: pct + "%", height: "100%", background: t.status === "failed" ? C.danger : C.accent }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+                    {t.status === "running" || t.status === "queued" ? (
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={() => act(t.id, "pause")}>暂停</button>
+                    ) : null}
+                    {t.status === "paused" ? (
+                      <button style={{ ...S.btnPrimary, padding: "1px 8px", fontSize: 11 }} onClick={() => act(t.id, "resume")}>继续</button>
+                    ) : null}
+                    {t.status === "failed" || t.status === "canceled" ? (
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={() => act(t.id, "retry")}>重试</button>
+                    ) : null}
+                    {t.status !== "done" && t.status !== "canceled" ? (
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11, color: C.danger }} onClick={() => act(t.id, "cancel")}>取消</button>
+                    ) : null}
+                    {t.status === "done" && t.kind === "download" && !t.skipped ? (
+                      <button style={{ ...S.btnPrimary, padding: "1px 8px", fontSize: 11 }} onClick={() => saveFile(t)}>保存到本机</button>
+                    ) : null}
+                  </div>
+                  {t.error ? <div style={{ color: C.danger, fontSize: 11, marginTop: 4 }}>{t.error}</div> : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+          <button style={S.btn} onClick={onClose}>关闭</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
@@ -1227,19 +1344,24 @@ function SftpPanel({ sessionId, followPath }) {
   async function uploadFiles(files) {
     if (!sessionId || !files || !files.length) return;
     setBusy(true);
-    setMsg({ kind: "info", text: "上传中…" });
     try {
-      let ok = 0;
+      let queued = 0;
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
+        if (f.size > 100 * 1024 * 1024) throw new Error("文件超过 100MB，暂不支持：" + f.name);
         const buf = new Uint8Array(await f.arrayBuffer());
-        const dest = joinPath(path, f.name);
-        const d = await postJson("/sftp/upload", { sessionId, path: dest, data: bytesToB64(buf) });
-        if (!d || !d.ok) throw new Error((d && d.error) || "上传失败：" + f.name);
-        ok++;
+        const d = await postJson("/transfers", {
+          kind: "upload",
+          sessionId,
+          name: f.name,
+          remotePath: joinPath(path, f.name),
+          dataB64: bytesToB64(buf),
+          policy: "overwrite",
+        });
+        if (!d || !d.ok) throw new Error((d && d.error) || "加入上传队列失败：" + f.name);
+        queued += 1;
       }
-      setMsg({ kind: "ok", text: "已上传 " + ok + " 个文件" });
-      await list(path);
+      setMsg({ kind: "ok", text: `已加入 ${queued} 个上传任务（在「⇅ 传输」面板查看）` });
     } catch (e) {
       setMsg({ kind: "err", text: String(e && e.message ? e.message : e) });
     } finally {
@@ -1247,15 +1369,18 @@ function SftpPanel({ sessionId, followPath }) {
     }
   }
 
-  function download(entry) {
+  async function download(entry) {
     const full = joinPath(path, entry.name);
-    const url = PREFIX + "/sftp/download?sessionId=" + encodeURIComponent(sessionId) + "&path=" + encodeURIComponent(full);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = entry.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try {
+      const d = await postJson("/transfers", { kind: "download", sessionId, remotePath: full, name: entry.name, policy: "overwrite" });
+      setMsg(
+        d && d.ok
+          ? { kind: "ok", text: "已加入下载队列（完成后在「⇅ 传输」面板保存到本机）" }
+          : { kind: "err", text: (d && d.error) || "加入下载队列失败" }
+      );
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    }
   }
 
   function enter(entry) {
@@ -1574,6 +1699,7 @@ function AixtermApp() {
   const [recordingTerminal, setRecordingTerminal] = useState(null);
   const [macros, setMacros] = useState([]);
   const [showMacros, setShowMacros] = useState(false);
+  const [showTransfers, setShowTransfers] = useState(false);
   const [macroEdit, setMacroEdit] = useState(null);
   const [macroMsg, setMacroMsg] = useState(null);
   const [layout, setLayout] = useState("single"); // single | hsplit | vsplit | quad
@@ -2785,6 +2911,9 @@ function AixtermApp() {
           {lockMsg ? <div style={{ color: C.danger, fontSize: 12 }}>{lockMsg}</div> : null}
         </div>
       ) : null}
+
+      {/* transfer modal */}
+      {showTransfers ? <TransferPanel onClose={() => setShowTransfers(false)} /> : null}
 
       {/* macro modal */}
       {showMacros ? (

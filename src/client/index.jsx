@@ -242,13 +242,18 @@ function parentPath(p) {
 
 /* ---------------------------------------------------------------- terminal */
 
-function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, prefs }) {
+function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, prefs }) {
   const hostRef = useRef(null);
   const onCwdRef = useRef(onCwd);
   const onInputRef = useRef(onInput);
   const prefsRef = useRef(prefs);
   const hlRef = useRef({ key: "", fn: null });
   const searchRef = useRef(null);
+  const historyRef = useRef([]);
+  const lineRef = useRef("");
+  const escRef = useRef(0);
+  const suggestionRef = useRef(null);
+  const [suggestion, setSuggestion] = useState(null);
   const zmodemSendRef = useRef(null);
   const zfileRef = useRef(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -268,6 +273,19 @@ function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, pref
   useEffect(() => {
     prefsRef.current = prefs;
   }, [prefs]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    (async () => {
+      try {
+        const r = await fetch(PREFIX + "/history?sessionId=" + encodeURIComponent(sessionId));
+        const d = await r.json();
+        if (d && d.ok) historyRef.current = d.commands || [];
+      } catch {
+        /* history unavailable */
+      }
+    })();
+  }, [sessionId]);
 
   useEffect(() => {
     const hide = () => setMenu(null);
@@ -310,6 +328,16 @@ function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, pref
     term.attachCustomKeyEventHandler((e) => {
       if (e.type === "keydown" && e.ctrlKey && !e.shiftKey && String(e.key).toLowerCase() === "f") {
         setFindOpen(true);
+        return false;
+      }
+      if (e.type === "keydown" && e.key === "Tab" && suggestionRef.current && suggestionRef.current.list.length) {
+        const target = suggestionRef.current.list[0];
+        const input = suggestionRef.current.input;
+        const rest = target.startsWith(input) ? target.slice(input.length) : "";
+        lineRef.current = target;
+        suggestionRef.current = null;
+        setSuggestion(null);
+        if (rest && onInputRef.current) onInputRef.current(rest);
         return false;
       }
       return true;
@@ -416,7 +444,69 @@ function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, pref
       }
     };
 
+    const updateSuggestion = () => {
+      const enabled = !prefsRef.current || prefsRef.current.suggestions !== false;
+      const alt = term.buffer && term.buffer.active && term.buffer.active.type === "alternate";
+      const input = lineRef.current;
+      if (!enabled || alt || !input) {
+        suggestionRef.current = null;
+        setSuggestion(null);
+        return;
+      }
+      const matches = [];
+      const seen = new Set();
+      for (let i = historyRef.current.length - 1; i >= 0 && matches.length < 5; i -= 1) {
+        const cmd = historyRef.current[i];
+        if (!cmd || cmd === input || seen.has(cmd)) continue;
+        if (cmd.startsWith(input) || cmd.includes(input)) {
+          seen.add(cmd);
+          matches.push(cmd);
+        }
+      }
+      const next = matches.length ? { input, list: matches } : null;
+      suggestionRef.current = next;
+      setSuggestion(next);
+    };
+
+    const updateLine = (data) => {
+      for (const ch of String(data)) {
+        const code = ch.charCodeAt(0);
+        if (escRef.current === 1) {
+          escRef.current = code === 91 ? 2 : 0;
+          continue;
+        }
+        if (escRef.current === 2) {
+          if (code >= 64 && code <= 126) escRef.current = 0;
+          continue;
+        }
+        if (code === 27) {
+          escRef.current = 1;
+          continue;
+        }
+        if (ch === "\r" || ch === "\n") {
+          const cmd = lineRef.current.trim();
+          lineRef.current = "";
+          if (cmd) {
+            historyRef.current.push(cmd);
+            if (historyRef.current.length > 500) historyRef.current.shift();
+          }
+          continue;
+        }
+        if (code === 127 || code === 8) {
+          lineRef.current = lineRef.current.slice(0, -1);
+          continue;
+        }
+        if (code === 3 || code === 21) {
+          lineRef.current = "";
+          continue;
+        }
+        if (code >= 32 && code < 127) lineRef.current += ch;
+      }
+      updateSuggestion();
+    };
+
     const dataDisposable = term.onData((data) => {
+      if (typeof data === "string") updateLine(data);
       if (onInputRef.current) onInputRef.current(data);
       else postJson("/term/input", { terminalId, data }).catch(() => {});
     });
@@ -496,6 +586,20 @@ function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, pref
     return () => clearTimeout(t);
   }, [active]);
 
+  function completeWith(cmd) {
+    const input = lineRef.current;
+    if (cmd.startsWith(input)) {
+      const rest = cmd.slice(input.length);
+      if (rest && onInputRef.current) onInputRef.current(rest);
+    } else if (onInputRef.current) {
+      // Replace the whole line: Ctrl+U then the command.
+      onInputRef.current("\x15" + cmd);
+    }
+    lineRef.current = cmd;
+    suggestionRef.current = null;
+    setSuggestion(null);
+  }
+
   function copySelection() {
     try {
       const sel = termRef.current && termRef.current.getSelection();
@@ -560,6 +664,44 @@ function TerminalPane({ terminalId, active, visible = true, onCwd, onInput, pref
         }}
         style={{ position: "absolute", inset: 0, padding: "6px 8px", overflow: "hidden" }}
       />
+      {suggestion ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 16,
+            bottom: 10,
+            zIndex: 5,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 6,
+            padding: 4,
+            maxWidth: "70%",
+            boxShadow: "0 8px 24px rgba(0,0,0,.45)",
+          }}
+        >
+          {suggestion.list.map((cmd, i) => (
+            <div
+              key={cmd}
+              onClick={() => completeWith(cmd)}
+              onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              style={{
+                padding: "3px 8px",
+                fontSize: 11.5,
+                borderRadius: 4,
+                cursor: "pointer",
+                fontFamily: "ui-monospace, monospace",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              <span style={{ color: C.accent, marginRight: 4 }}>{i === 0 ? "↹" : " "}</span>
+              {cmd}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {findOpen ? (
         <div
           style={{
@@ -1277,9 +1419,9 @@ function AixtermApp() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh" };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -2156,6 +2298,7 @@ function AixtermApp() {
                 <TerminalPane
                   key={t.id}
                   terminalId={t.id}
+                  sessionId={t.sessionId || ""}
                   active={t.id === activeId}
                   visible={t.id === activeId}
                   prefs={prefs}
@@ -2168,6 +2311,7 @@ function AixtermApp() {
             <TerminalPane
               key={paneTab.id}
               terminalId={paneTab.id}
+              sessionId={paneTab.sessionId || ""}
               active={false}
               visible={true}
               prefs={prefs}
@@ -2819,6 +2963,14 @@ function AixtermApp() {
               )}
               <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>{tr("＋ 添加高亮规则", "+ Add rule")}</button>
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 10 }}>
+              <input
+                type="checkbox"
+                checked={prefs.suggestions !== false}
+                onChange={(e) => updatePrefs({ suggestions: e.target.checked })}
+              />
+              <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
+            </label>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
               <div style={{ ...S.muted, marginBottom: 6 }}>{tr("安全锁定", "Lock screen")}</div>
               {lockInfo.hasMaster ? (

@@ -1498,6 +1498,16 @@ function AixtermApp() {
     }
   }
 
+  function disconnectSession(id) {
+    const owned = tabs.filter((t) => t.sessionId === id);
+    if (!owned.length) {
+      setMsg({ kind: "ok", text: "该会话当前未连接" });
+      return;
+    }
+    for (const t of owned) closeTab(t.id);
+    setMsg({ kind: "ok", text: "已断开会话" });
+  }
+
   function toggleRecord(terminalId) {
     if (recRef.current) {
       const rec = recRef.current;
@@ -2051,7 +2061,17 @@ function AixtermApp() {
                         setSessionMenu({ session: s, x: e.clientX, y: e.clientY });
                       }}
                     >
-                      <span style={{ color: isActive ? C.ok : C.dim, fontSize: 11 }}>●</span>
+                      {(() => {
+                        const connected = tabs.some((t) => t.sessionId === s.id);
+                        return (
+                          <span
+                            title={connected ? "已连接" : "未连接（仅保存的配置）"}
+                            style={{ color: isActive ? C.ok : connected ? C.accent : C.dim, fontSize: 11 }}
+                          >
+                            {connected ? "●" : "○"}
+                          </span>
+                        );
+                      })()}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
                         <div style={{ fontSize: 11, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -2212,25 +2232,39 @@ function AixtermApp() {
             boxShadow: "0 10px 30px rgba(0,0,0,.55)",
           }}
         >
-          {[
-            ["打开终端", () => openTerminal(sessionMenu.session)],
-            ["编辑配置", () => openEdit(sessionMenu.session)],
+          {(() => {
+            const connected = tabs.some((t) => t.sessionId === sessionMenu.session.id);
+            return [
+              ["连接会话", () => openTerminal(sessionMenu.session)],
+              ["断开会话", () => disconnectSession(sessionMenu.session.id), false, !connected],
+              ["编辑配置", () => openEdit(sessionMenu.session)],
             ["复制会话", () => duplicateSession(sessionMenu.session.id)],
             ["tmux 会话", () => openTmux(sessionMenu.session)],
             ["端口转发", () => openForwards(sessionMenu.session)],
             ["导出日志", () => exportLog(sessionMenu.session.id, "html")],
-            ["测试连接", () => testSession(sessionMenu.session.id)],
-            ["删除会话", () => removeSession(sessionMenu.session.id), true],
-          ].map(([label, fn, danger]) => (
+              ["测试连接", () => testSession(sessionMenu.session.id)],
+              ["删除会话", () => removeSession(sessionMenu.session.id), true],
+            ];
+          })().map(([label, fn, danger, disabled]) => (
             <div
               key={label}
               onClick={() => {
+                if (disabled) return;
                 setSessionMenu(null);
                 fn();
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+              onMouseEnter={(e) => {
+                if (!disabled) e.currentTarget.style.background = C.hover;
+              }}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              style={{ padding: "5px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4, color: danger ? C.danger : C.text }}
+              style={{
+                padding: "5px 10px",
+                fontSize: 12,
+                cursor: disabled ? "default" : "pointer",
+                borderRadius: 4,
+                color: danger ? C.danger : C.text,
+                opacity: disabled ? 0.4 : 1,
+              }}
             >
               {label}
             </div>

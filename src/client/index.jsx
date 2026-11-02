@@ -431,12 +431,40 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
     }
   }
 
+  function downloadLog() {
+    const a = document.createElement("a");
+    a.href = PREFIX + "/term/log?terminalId=" + encodeURIComponent(terminalId);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function clearScrollback() {
+    try {
+      // CSI 3 J: erase the saved scrollback, keeping the visible screen.
+      termRef.current && termRef.current.write("\x1b[3J");
+    } catch {
+      /* terminal gone */
+    }
+  }
+
+  function resetTerminal() {
+    try {
+      termRef.current && termRef.current.reset();
+    } catch {
+      /* terminal gone */
+    }
+  }
+
   const menuItems = [
     ["复制", copySelection],
     ["粘贴", pasteClipboard],
     ["全选", () => termRef.current && termRef.current.selectAll()],
-    ["清屏", () => termRef.current && termRef.current.clear()],
     ["查找", () => setFindOpen(true)],
+    ["下载日志", downloadLog],
+    ["清屏", () => termRef.current && termRef.current.clear()],
+    ["清除回滚", clearScrollback],
+    ["重置终端", resetTerminal],
   ];
 
   return (

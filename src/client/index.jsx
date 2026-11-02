@@ -1211,7 +1211,8 @@ function AixtermApp() {
   const ioFileRef = useRef(null);
   const [serialPorts, setSerialPorts] = useState([]);
   const [showAi, setShowAi] = useState(false);
-  const [termConfig, setTermConfig] = useState(null);
+  const [termSettings, setTermSettings] = useState({ saveScrollback: true, scrollbackDir: "", bufferLines: 2000, dataDir: "" });
+  const [termSettingsMsg, setTermSettingsMsg] = useState(null);
   const [lockInfo, setLockInfo] = useState({ locked: false, hasMaster: false, idleMinutes: 15 });
   const [tmuxFor, setTmuxFor] = useState(null);
   const [tmuxInfo, setTmuxInfo] = useState({ available: false, sessions: [] });
@@ -1252,14 +1253,33 @@ function AixtermApp() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(PREFIX + "/config");
+        const r = await fetch(PREFIX + "/settings");
         const d = await r.json();
-        if (d && d.ok) setTermConfig(d);
+        if (d && d.ok) setTermSettings((prev) => ({ ...prev, ...d.settings }));
       } catch {
-        /* config unavailable */
+        /* settings unavailable */
       }
     })();
   }, []);
+
+  async function saveTermSettings() {
+    setTermSettingsMsg(null);
+    try {
+      const d = await postJson("/settings", {
+        saveScrollback: termSettings.saveScrollback,
+        scrollbackDir: termSettings.scrollbackDir || "",
+        bufferLines: Number(termSettings.bufferLines) || 2000,
+      });
+      if (d && d.ok) {
+        setTermSettings((prev) => ({ ...prev, ...d.settings }));
+        setTermSettingsMsg({ kind: "ok", text: "已保存" });
+      } else {
+        setTermSettingsMsg({ kind: "err", text: (d && d.error) || "保存失败" });
+      }
+    } catch (e) {
+      setTermSettingsMsg({ kind: "err", text: String(e) });
+    }
+  }
 
   const refreshLock = useCallback(async () => {
     try {
@@ -2316,15 +2336,43 @@ function AixtermApp() {
               {lockMsg ? <div style={{ color: C.danger, marginTop: 6 }}>{lockMsg}</div> : null}
             </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={S.muted}>终端输出本地保存</span>
-                <span style={{ color: termConfig && termConfig.saveScrollback ? C.ok : C.dim }}>
-                  {termConfig ? (termConfig.saveScrollback ? "已开启" : "已关闭") : "—"}
-                </span>
-              </div>
-              <div style={{ ...S.muted, marginTop: 4, wordBreak: "break-all" }}>{termConfig ? termConfig.scrollbackDir : ""}</div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(termSettings.saveScrollback)}
+                  onChange={(e) => setTermSettings((prev) => ({ ...prev, saveScrollback: e.target.checked }))}
+                />
+                <span>终端输出保存到本地</span>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                <span style={S.muted}>保存目录（绝对路径；留空使用默认目录）</span>
+                <input
+                  style={S.input}
+                  value={termSettings.scrollbackDir || ""}
+                  disabled={!termSettings.saveScrollback}
+                  onChange={(e) => setTermSettings((prev) => ({ ...prev, scrollbackDir: e.target.value }))}
+                  placeholder="例如 /home/you/aixterm-logs"
+                />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <span style={S.muted}>内存循环 buffer 行数</span>
+                <input
+                  style={{ ...S.input, width: 110 }}
+                  type="number"
+                  min="100"
+                  max="100000"
+                  value={termSettings.bufferLines}
+                  onChange={(e) => setTermSettings((prev) => ({ ...prev, bufferLines: e.target.value }))}
+                />
+              </label>
               <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
-                用于 AI 分析历史输出；在插件配置中修改 saveScrollback / scrollbackDir
+                关闭本地保存时仅保留内存循环 buffer（超出按行覆盖）。修改保存后对已打开终端立即生效。
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <button style={S.btn} onClick={saveTermSettings}>保存设置</button>
+                {termSettingsMsg ? (
+                  <span style={{ color: termSettingsMsg.kind === "err" ? C.danger : C.ok }}>{termSettingsMsg.text}</span>
+                ) : null}
               </div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>

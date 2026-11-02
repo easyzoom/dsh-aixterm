@@ -1277,9 +1277,9 @@ function AixtermApp() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [] };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh" };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -1349,6 +1349,13 @@ function AixtermApp() {
         if (d && d.ok) setTermSettings((prev) => ({ ...prev, ...d.settings }));
       } catch {
         /* settings unavailable */
+      }
+      try {
+        const c = await fetch(PREFIX + "/config");
+        const cfg = await c.json();
+        if (cfg && cfg.ok) setTermSettings((prev) => ({ ...prev, version: cfg.version, repo: cfg.repo }));
+      } catch {
+        /* config unavailable */
       }
     })();
   }, []);
@@ -1561,6 +1568,10 @@ function AixtermApp() {
     } catch {
       /* storage unavailable */
     }
+  }
+
+  function tr(zh, en) {
+    return prefs.lang === "en" ? en : zh;
   }
 
   function updateHighlight(index, patchObj) {
@@ -2134,10 +2145,10 @@ function AixtermApp() {
             tabs.length === 0 ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.dim }}>
                 <div style={{ fontSize: 40, opacity: 0.5 }}>▚</div>
-                <div style={{ fontSize: 13 }}>选择左侧会话，或打开一个本地终端</div>
+                <div style={{ fontSize: 13 }}>{tr("选择左侧会话，或打开一个本地终端", "Pick a session on the left, or open a local terminal")}</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button style={S.btnPrimary} onClick={() => openTerminal(null)} disabled={busy}>打开本地终端</button>
-                  <button style={S.btn} onClick={openCreate}>新建 SSH 会话</button>
+                  <button style={S.btnPrimary} onClick={() => openTerminal(null)} disabled={busy}>{tr("打开本地终端", "Open local terminal")}</button>
+                  <button style={S.btn} onClick={openCreate}>{tr("新建 SSH 会话", "New SSH session")}</button>
                 </div>
               </div>
             ) : (
@@ -2191,20 +2202,20 @@ function AixtermApp() {
       {/* left: connections */}
       <aside style={{ width: 250, flex: "0 0 250px", borderRight: `1px solid ${C.border}`, background: C.panel, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: 0.2 }}>连接</span>
+          <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: 0.2 }}>{tr("连接", "Sessions")}</span>
           <div style={{ display: "flex", gap: 6 }}>
             {lockInfo.hasMaster ? (
               <button style={S.btn} title="立即锁定" onClick={lockNow}>🔒</button>
             ) : null}
             <button style={S.btn} title="SSH 密钥管理" onClick={openKeys}>🔑</button>
             <button style={S.btn} title="导入 / 导出会话" onClick={() => setShowIO(true)}>⇅</button>
-            <button style={S.btnPrimary} onClick={openCreate}>+ 新建</button>
+            <button style={S.btnPrimary} onClick={openCreate}>{tr("+ 新建", "+ New")}</button>
           </div>
         </div>
 
         <div style={{ padding: "8px 10px" }}>
           <button style={{ ...S.btn, width: "100%", textAlign: "left", padding: "7px 10px" }} onClick={() => openTerminal(null)} disabled={busy}>
-            <span style={{ color: C.accent, marginRight: 6 }}>▸</span> 本地终端
+            <span style={{ color: C.accent, marginRight: 6 }}>▸</span> {tr("本地终端", "Local terminal")}
           </button>
         </div>
         <div style={{ padding: "0 10px 8px" }}>
@@ -2212,14 +2223,14 @@ function AixtermApp() {
             style={S.input}
             value={sessionQuery}
             onChange={(e) => setSessionQuery(e.target.value)}
-            placeholder="搜索会话（名称/主机/用户/分组）"
+            placeholder={tr("搜索会话（名称/主机/用户/分组）", "Search sessions (name/host/user/group)")}
           />
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: "0 8px 8px" }}>
           {groups.length === 0 ? (
             <div style={{ ...S.muted, padding: "10px 6px", lineHeight: 1.6 }}>
-              还没有连接。点「新建」添加 SSH 会话，或直接打开本地终端。
+              {tr("还没有连接。点「新建」添加 SSH 会话，或直接打开本地终端。", "No sessions yet. Use + New to add an SSH session, or open a local terminal.")}
             </div>
           ) : (
             groups.map((g) => (
@@ -2256,7 +2267,7 @@ function AixtermApp() {
                         const connected = tabs.some((t) => t.sessionId === s.id);
                         return (
                           <span
-                            title={connected ? "已连接" : "未连接（仅保存的配置）"}
+                            title={connected ? tr("已连接", "Connected") : tr("未连接（仅保存的配置）", "Not connected (saved entry)")}
                             style={{ color: isActive ? C.ok : connected ? C.accent : C.dim, fontSize: 11 }}
                           >
                             {connected ? "●" : "○"}
@@ -2288,7 +2299,7 @@ function AixtermApp() {
       <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
         <div style={{ display: "flex", alignItems: "stretch", borderBottom: `1px solid ${C.border}`, background: C.panel, minHeight: 38, overflowX: "auto" }}>
           {tabs.length === 0 ? (
-            <div style={{ ...S.muted, padding: "0 12px", display: "flex", alignItems: "center" }}>未打开终端</div>
+            <div style={{ ...S.muted, padding: "0 12px", display: "flex", alignItems: "center" }}>{tr("未打开终端", "No terminal open")}</div>
           ) : (
             tabs.map((t) => (
               <div
@@ -2323,19 +2334,19 @@ function AixtermApp() {
             ))
           )}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, padding: "0 10px", flex: "0 0 auto" }}>
-            <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, cursor: "pointer" }} title="把输入同时发送到所有已打开终端">
+            <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, cursor: "pointer" }} title={tr("把输入同时发送到所有已打开终端", "Send input to every open terminal")}>
               <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
-              同步输入
+              {tr("同步输入", "Broadcast")}
             </label>
             <button
               style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }}
-              title="分屏：单屏 → 左右双屏 → 上下双屏 → 四屏 → 单屏"
+              title={tr("分屏：单屏 → 左右双屏 → 上下双屏 → 四屏 → 单屏", "Split: single -> side-by-side -> stacked -> quad -> single")}
               onClick={cycleLayout}
             >
-              ◫ 分屏{layout === "hsplit" ? " ⇆" : layout === "vsplit" ? " ⇅" : layout === "quad" ? " ⊞" : ""}
+              {tr("分屏", "Split")}{layout === "hsplit" ? " ⇆" : layout === "vsplit" ? " ⇅" : layout === "quad" ? " ⊞" : ""}
             </button>
-            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="宏管理" onClick={openMacros}>
-              宏
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title={tr("宏管理", "Macros")} onClick={openMacros}>
+              {tr("宏", "Macros")}
             </button>
             {activeTab ? (
               <button
@@ -2345,17 +2356,17 @@ function AixtermApp() {
                   fontSize: 11.5,
                   color: recordingTerminal === activeTab.id ? C.danger : C.text,
                 }}
-                title="录制/停止录制当前终端的命令"
+                title={tr("录制/停止录制当前终端的命令", "Record/stop recording commands in this terminal")}
                 onClick={() => toggleRecord(activeTab.id)}
               >
-                {recordingTerminal === activeTab.id ? "■ 停止录制" : "● 录制"}
+                {recordingTerminal === activeTab.id ? tr("■ 停止录制", "■ Stop") : tr("● 录制", "● Record")}
               </button>
             ) : null}
-            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="AI 助手（基于当前终端上下文）" onClick={() => setShowAi((v) => !v)}>
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title={tr("AI 助手（基于当前终端上下文）", "AI assistant (terminal context)")} onClick={() => setShowAi((v) => !v)}>
               ✦ AI
             </button>
-            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="终端设置" onClick={() => setShowSettings(true)}>
-              ⚙ 设置
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title={tr("终端设置", "Terminal settings")} onClick={() => setShowSettings(true)}>
+              ⚙ {tr("设置", "Settings")}
             </button>
           </div>
         </div>
@@ -2427,15 +2438,15 @@ function AixtermApp() {
           {(() => {
             const connected = tabs.some((t) => t.sessionId === sessionMenu.session.id);
             return [
-              ["连接会话", () => openTerminal(sessionMenu.session)],
-              ["断开会话", () => disconnectSession(sessionMenu.session.id), false, !connected],
-              ["编辑配置", () => openEdit(sessionMenu.session)],
-            ["复制会话", () => duplicateSession(sessionMenu.session.id)],
-            ["tmux 会话", () => openTmux(sessionMenu.session)],
-            ["端口转发", () => openForwards(sessionMenu.session)],
-            ["导出日志", () => exportLog(sessionMenu.session.id, "html")],
-              ["测试连接", () => testSession(sessionMenu.session.id)],
-              ["删除会话", () => removeSession(sessionMenu.session.id), true],
+              [tr("连接会话", "Connect"), () => openTerminal(sessionMenu.session)],
+              [tr("断开会话", "Disconnect"), () => disconnectSession(sessionMenu.session.id), false, !connected],
+              [tr("编辑配置", "Edit"), () => openEdit(sessionMenu.session)],
+            [tr("复制会话", "Duplicate"), () => duplicateSession(sessionMenu.session.id)],
+            [tr("tmux 会话", "tmux sessions"), () => openTmux(sessionMenu.session)],
+            [tr("端口转发", "Port forwarding"), () => openForwards(sessionMenu.session)],
+            [tr("导出日志", "Export log"), () => exportLog(sessionMenu.session.id, "html")],
+              [tr("测试连接", "Test connection"), () => testSession(sessionMenu.session.id)],
+              [tr("删除会话", "Delete"), () => removeSession(sessionMenu.session.id), true],
             ];
           })().map(([label, fn, danger, disabled]) => (
             <div
@@ -2742,23 +2753,30 @@ function AixtermApp() {
             onClick={(e) => e.stopPropagation()}
             style={{ width: 420, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>终端设置</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>{tr("终端设置", "Terminal settings")}</div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+              <span style={S.muted}>{tr("界面语言", "Language")}</span>
+              <select style={S.input} value={prefs.lang || "zh"} onChange={(e) => updatePrefs({ lang: e.target.value })}>
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-              <span style={S.muted}>字号：{prefs.fontSize}px</span>
+              <span style={S.muted}>{tr("字号", "Font size")}：{prefs.fontSize}px</span>
               <input type="range" min="10" max="20" step="1" value={prefs.fontSize} onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={S.muted}>配色主题</span>
+              <span style={S.muted}>{tr("配色主题", "Colour theme")}</span>
               <select style={S.input} value={prefs.theme} onChange={(e) => updatePrefs({ theme: e.target.value })}>
-                <option value="dark">深色（GitHub Dark）</option>
-                <option value="light">浅色</option>
+                <option value="dark">{tr("深色（GitHub Dark）", "Dark (GitHub)")}</option>
+                <option value="light">{tr("浅色", "Light")}</option>
                 <option value="solarized">Solarized Dark</option>
                 <option value="dracula">Dracula</option>
-                <option value="contrast">高对比（黑底绿字）</option>
+                <option value="contrast">{tr("高对比（黑底绿字）", "High contrast")}</option>
               </select>
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <span style={S.muted}>字体</span>
+              <span style={S.muted}>{tr("字体", "Font family")}</span>
               <select style={S.input} value={prefs.fontFamily || ""} onChange={(e) => updatePrefs({ fontFamily: e.target.value })}>
                 {FONT_CHOICES.map(([value, label]) => (
                   <option key={label} value={value}>{label}</option>
@@ -2766,7 +2784,7 @@ function AixtermApp() {
               </select>
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <span style={S.muted}>行高：{Number(prefs.lineHeight) || 1.15}</span>
+              <span style={S.muted}>{tr("行高", "Line height")}：{Number(prefs.lineHeight) || 1.15}</span>
               <input
                 type="range"
                 min="1"
@@ -2777,9 +2795,9 @@ function AixtermApp() {
               />
             </label>
             <div style={{ marginTop: 12 }}>
-              <div style={{ ...S.muted, marginBottom: 4 }}>关键字高亮</div>
+              <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关键字高亮", "Keyword highlighting")}</div>
               {(prefs.highlights || []).length === 0 ? (
-                <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>暂无规则（例如把 ERROR 标红、WARN 标黄）</div>
+                <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("暂无规则（例如把 ERROR 标红、WARN 标黄）", "No rules (e.g. colour ERROR red, WARN yellow)")}</div>
               ) : (
                 (prefs.highlights || []).map((rule, i) => (
                   <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
@@ -2799,14 +2817,14 @@ function AixtermApp() {
                   </div>
                 ))
               )}
-              <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>＋ 添加高亮规则</button>
+              <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>{tr("＋ 添加高亮规则", "+ Add rule")}</button>
             </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
-              <div style={{ ...S.muted, marginBottom: 6 }}>安全锁定</div>
+              <div style={{ ...S.muted, marginBottom: 6 }}>{tr("安全锁定", "Lock screen")}</div>
               {lockInfo.hasMaster ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ color: C.ok }}>主密码已设置</span>
-                  <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={lockNow}>立即锁定</button>
+                  <span style={{ color: C.ok }}>{tr("主密码已设置", "Master password set")}</span>
+                  <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={lockNow}>{tr("立即锁定", "Lock now")}</button>
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
@@ -2815,13 +2833,13 @@ function AixtermApp() {
                     type="password"
                     value={newMaster}
                     onChange={(e) => setNewMaster(e.target.value)}
-                    placeholder="设置主密码（4 位以上）"
+                    placeholder={tr("设置主密码（4 位以上）", "Master password (4+ chars)")}
                   />
-                  <button style={S.btn} onClick={setupMaster}>设置</button>
+                  <button style={S.btn} onClick={setupMaster}>{tr("设置", "Set")}</button>
                 </div>
               )}
               <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={S.muted}>空闲自动锁定（分钟，0 关闭）</span>
+                <span style={S.muted}>{tr("空闲自动锁定（分钟，0 关闭）", "Idle auto-lock (minutes, 0 = off)")}</span>
                 <input
                   style={{ ...S.input, width: 80 }}
                   type="number"
@@ -2839,20 +2857,20 @@ function AixtermApp() {
                   checked={Boolean(termSettings.saveScrollback)}
                   onChange={(e) => setTermSettings((prev) => ({ ...prev, saveScrollback: e.target.checked }))}
                 />
-                <span>终端输出保存到本地</span>
+                <span>{tr("终端输出保存到本地", "Save terminal output locally")}</span>
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                <span style={S.muted}>保存目录（绝对路径；留空使用默认目录）</span>
+                <span style={S.muted}>{tr("保存目录（绝对路径；留空使用默认目录）", "Directory (absolute; empty = default)")}</span>
                 <input
                   style={S.input}
                   value={termSettings.scrollbackDir || ""}
                   disabled={!termSettings.saveScrollback}
                   onChange={(e) => setTermSettings((prev) => ({ ...prev, scrollbackDir: e.target.value }))}
-                  placeholder="例如 /home/you/aixterm-logs"
+                  placeholder={tr("例如 /home/you/aixterm-logs", "e.g. /home/you/aixterm-logs")}
                 />
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                <span style={S.muted}>内存循环 buffer 行数</span>
+                <span style={S.muted}>{tr("内存循环 buffer 行数", "In-memory buffer lines")}</span>
                 <input
                   style={{ ...S.input, width: 110 }}
                   type="number"
@@ -2863,17 +2881,33 @@ function AixtermApp() {
                 />
               </label>
               <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
-                关闭本地保存时仅保留内存循环 buffer（超出按行覆盖）。修改保存后对已打开终端立即生效。
+                {tr("关闭本地保存时仅保留内存循环 buffer（超出按行覆盖）。修改保存后对已打开终端立即生效。", "When saving is off only the in-memory buffer is kept (old lines rolled over). Saved changes apply to open terminals immediately.")}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                <button style={S.btn} onClick={saveTermSettings}>保存设置</button>
+                <button style={S.btn} onClick={saveTermSettings}>{tr("保存设置", "Save")}</button>
                 {termSettingsMsg ? (
                   <span style={{ color: termSettingsMsg.kind === "err" ? C.danger : C.ok }}>{termSettingsMsg.text}</span>
                 ) : null}
               </div>
             </div>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
+              <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关于", "About")}</div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>dsh-aixterm</span>
+                <span style={S.muted}>{termSettings.version ? `v${termSettings.version}` : ""}</span>
+              </div>
+              <a
+                href={termSettings.repo || "https://github.com/easyzoom/dsh-aixterm"}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: C.accent, wordBreak: "break-all" }}
+              >
+                github.com/easyzoom/dsh-aixterm
+              </a>
+              <div style={{ ...S.muted, marginTop: 2 }}>MIT License</div>
+            </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
-              <button style={S.btnPrimary} onClick={() => setShowSettings(false)}>完成</button>
+              <button style={S.btnPrimary} onClick={() => setShowSettings(false)}>{tr("完成", "Done")}</button>
             </div>
           </div>
         </div>

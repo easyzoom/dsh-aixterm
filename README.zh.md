@@ -83,3 +83,16 @@ dsh plugin --profile <profile> add /path/to/dsh-aixterm
 ## 许可证
 
 MIT
+
+## 在对话中使用
+
+插件注册了内嵌 **aixterm** skill 与一组工具，dsh 对话可以直接驱动终端：
+
+- `@test 看看最近报了什么错` → `aixterm_read_log` / `aixterm_analyze`
+- `在 test 上执行 df -h` → `aixterm_run`（危险命令会自动请求你批准）
+- `把 test 的资源情况汇总一下` → `aixterm_analyze`
+- `帮我加一个到 10.0.0.5 的会话，用户 root` → `aixterm_create_session`
+- `test 上有哪些 tmux 会话` → `aixterm_tmux_sessions`
+
+工具支持会话 **id 或精确名称**，所以对话里 `@<会话名>` 引用即可。
+

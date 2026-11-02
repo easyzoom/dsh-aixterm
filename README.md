@@ -66,6 +66,18 @@ Notes:
 - The git source works for a private repo too when your git credentials are set.
 - The npm command requires the package to be published first.
 
+## Using it from the chat
+
+The plugin registers an embedded **aixterm** skill and a set of tools, so the dsh conversation can drive terminals directly:
+
+- `@test 看看最近报了什么错` → `aixterm_read_log` / `aixterm_analyze`
+- `在 test 上执行 df -h` → `aixterm_run` (dangerous commands ask for approval)
+- `把 test 的资源情况汇总一下` → `aixterm_analyze`
+- `帮我加一个到 10.0.0.5 的会话，用户 root` → `aixterm_create_session`
+- `test 上有哪些 tmux 会话` → `aixterm_tmux_sessions`
+
+Tools accept a session id **or exact name**, so `@<session name>` references work.
+
 ## Usage
 
 1. Open the sidebar **SSH 会话** page → **+ 新建** → fill in host / port / user / auth → save. The session opens in a terminal tab.

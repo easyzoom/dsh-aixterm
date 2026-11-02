@@ -1213,6 +1213,12 @@ function AixtermApp() {
   const [showAi, setShowAi] = useState(false);
   const [termSettings, setTermSettings] = useState({ saveScrollback: true, scrollbackDir: "", bufferLines: 2000, dataDir: "" });
   const [termSettingsMsg, setTermSettingsMsg] = useState(null);
+  const recRef = useRef(null);
+  const [recordingTerminal, setRecordingTerminal] = useState(null);
+  const [macros, setMacros] = useState([]);
+  const [showMacros, setShowMacros] = useState(false);
+  const [macroEdit, setMacroEdit] = useState(null);
+  const [macroMsg, setMacroMsg] = useState(null);
   const [lockInfo, setLockInfo] = useState({ locked: false, hasMaster: false, idleMinutes: 15 });
   const [tmuxFor, setTmuxFor] = useState(null);
   const [tmuxInfo, setTmuxInfo] = useState({ available: false, sessions: [] });
@@ -1296,6 +1302,20 @@ function AixtermApp() {
     const timer = setInterval(refreshLock, 30000);
     return () => clearInterval(timer);
   }, [refreshLock]);
+
+  const loadMacros = useCallback(async () => {
+    try {
+      const r = await fetch(PREFIX + "/macros");
+      const d = await r.json();
+      if (d && d.ok) setMacros(d.macros || []);
+    } catch {
+      /* macros unavailable */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMacros();
+  }, [loadMacros]);
 
   useEffect(() => {
     const hide = () => setSessionMenu(null);
@@ -1456,10 +1476,122 @@ function AixtermApp() {
   }
 
   function handleInput(sourceId, data) {
+    const rec = recRef.current;
+    if (rec && rec.terminalId === sourceId) {
+      for (const ch of String(data)) {
+        if (ch === "\r" || ch === "\n") {
+          const line = rec.current.trim();
+          if (line) rec.lines.push(line);
+          rec.current = "";
+        } else if (ch === "\x7f" || ch === "\b") {
+          rec.current = rec.current.slice(0, -1);
+        } else if (ch === "\x03") {
+          rec.current = "";
+        } else if (ch >= " ") {
+          rec.current += ch;
+        }
+      }
+    }
     const targets = broadcast ? tabs.map((t) => t.id) : [sourceId];
     for (const id of targets) {
       postJson("/term/input", { terminalId: id, data }).catch(() => {});
     }
+  }
+
+  function toggleRecord(terminalId) {
+    if (recRef.current) {
+      const rec = recRef.current;
+      recRef.current = null;
+      setRecordingTerminal(null);
+      const steps = [...rec.lines];
+      if (rec.current.trim()) steps.push(rec.current.trim());
+      if (!steps.length) {
+        setMsg({ kind: "ok", text: "没有录制到命令" });
+        return;
+      }
+      const name = window.prompt("保存宏名称", "宏 " + new Date().toLocaleTimeString());
+      if (!name) return;
+      postJson("/macros", { name, steps })
+        .then((d) => {
+          if (d && d.ok) {
+            loadMacros();
+            setMsg({ kind: "ok", text: `已保存宏「${name}」（${steps.length} 条命令）` });
+          } else {
+            setMsg({ kind: "err", text: (d && d.error) || "保存最终宏失败" });
+          }
+        })
+        .catch((e) => setMsg({ kind: "err", text: String(e) }));
+    } else {
+      recRef.current = { terminalId, lines: [], current: "" };
+      setRecordingTerminal(terminalId);
+      setMsg({ kind: "ok", text: "录制中…在终端执行的命令会被记录，再次点录制结束" });
+    }
+  }
+
+  function openMacros() {
+    setShowMacros(true);
+    setMacroMsg(null);
+    setMacroEdit(null);
+    loadMacros();
+  }
+
+  async function saveMacro() {
+    if (!macroEdit) return;
+    const steps = (macroEdit.stepsText || "")
+      .split("\n")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (!macroEdit.name) {
+      setMacroMsg({ kind: "err", text: "请填写宏名称" });
+      return;
+    }
+    if (!steps.length) {
+      setMacroMsg({ kind: "err", text: "至少需要一条命令" });
+      return;
+    }
+    try {
+      const d = await postJson("/macros", {
+        id: macroEdit.id || undefined,
+        name: macroEdit.name,
+        description: macroEdit.description || "",
+        steps,
+      });
+      if (d && d.ok) {
+        setMacroEdit(null);
+        setMacroMsg({ kind: "ok", text: "已保存" });
+        await loadMacros();
+      } else {
+        setMacroMsg({ kind: "err", text: (d && d.error) || "保存失败" });
+      }
+    } catch (e) {
+      setMacroMsg({ kind: "err", text: String(e) });
+    }
+  }
+
+  async function deleteMacro(macro) {
+    if (!window.confirm(`删除宏「${macro.name}」？`)) return;
+    try {
+      const d = await postJson("/macros/delete", { id: macro.id });
+      if (d && d.ok) await loadMacros();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function executeMacro(macro) {
+    const tab = activeTab;
+    if (!tab) {
+      setMacroMsg({ kind: "err", text: "先打开一个终端再执行宏" });
+      return;
+    }
+    const steps = macro.steps || [];
+    const delay = Number(macro.delayMs) > 0 ? Number(macro.delayMs) : 500;
+    steps.forEach((line, i) => {
+      setTimeout(() => {
+        postJson("/term/input", { terminalId: tab.id, data: line + "\r" }).catch(() => {});
+      }, i * delay);
+    });
+    setMacroMsg({ kind: "ok", text: `已执行「${macro.name}」（${steps.length} 条）` });
   }
 
   function openKeys() {
@@ -1984,6 +2116,23 @@ function AixtermApp() {
               <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
               同步输入
             </label>
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="宏管理" onClick={openMacros}>
+              宏
+            </button>
+            {activeTab ? (
+              <button
+                style={{
+                  ...S.btn,
+                  padding: "3px 8px",
+                  fontSize: 11.5,
+                  color: recordingTerminal === activeTab.id ? C.danger : C.text,
+                }}
+                title="录制/停止录制当前终端的命令"
+                onClick={() => toggleRecord(activeTab.id)}
+              >
+                {recordingTerminal === activeTab.id ? "■ 停止录制" : "● 录制"}
+              </button>
+            ) : null}
             <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="AI 助手（基于当前终端上下文）" onClick={() => setShowAi((v) => !v)}>
               ✦ AI
             </button>
@@ -2121,6 +2270,81 @@ function AixtermApp() {
             <button style={S.btnPrimary} onClick={unlockNow}>解锁</button>
           </div>
           {lockMsg ? <div style={{ color: C.danger, fontSize: 12 }}>{lockMsg}</div> : null}
+        </div>
+      ) : null}
+
+      {/* macro modal */}
+      {showMacros ? (
+        <div
+          onClick={() => setShowMacros(false)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 600, maxWidth: "94%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>宏（录制 / 执行）</div>
+            {!macroEdit ? (
+              <>
+                {macros.length === 0 ? (
+                  <div style={{ ...S.muted, marginBottom: 10 }}>还没有宏。点终端标签栏的「● 录制」录制命令，或手动新建。</div>
+                ) : (
+                  macros.map((m) => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", marginBottom: 6, fontSize: 12 }}>
+                      <span style={{ flex: 1 }}>
+                        <b>{m.name}</b> <span style={S.muted}>· {m.steps.length} 条{m.description ? ` · ${m.description}` : ""}</span>
+                      </span>
+                      <button style={{ ...S.btnPrimary, padding: "1px 8px", fontSize: 11 }} onClick={() => executeMacro(m)}>
+                        执行
+                      </button>
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={() => setMacroEdit({ id: m.id, name: m.name, description: m.description || "", stepsText: m.steps.join("\n") })}>
+                        编辑
+                      </button>
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11, color: C.danger }} onClick={() => deleteMacro(m)}>
+                        删除
+                      </button>
+                    </div>
+                  ))
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button style={S.btn} onClick={() => setMacroEdit({ id: "", name: "", description: "", stepsText: "" })}>
+                    手动新建
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>名称</span>
+                  <input style={S.input} value={macroEdit.name} onChange={(e) => setMacroEdit((m) => ({ ...m, name: e.target.value }))} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>说明（可选）</span>
+                  <input style={S.input} value={macroEdit.description} onChange={(e) => setMacroEdit((m) => ({ ...m, description: e.target.value }))} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                  <span style={S.muted}>命令（每行一条，按顺序发送）</span>
+                  <textarea
+                    value={macroEdit.stepsText}
+                    onChange={(e) => setMacroEdit((m) => ({ ...m, stepsText: e.target.value }))}
+                    spellCheck={false}
+                    style={{ height: 160, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: 8, fontFamily: "ui-monospace, monospace", fontSize: 12, resize: "vertical" }}
+                    placeholder={"cd /opt/app\nmake install"}
+                  />
+                </label>
+                <div style={{ gridColumn: "1 / span 2", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button style={S.btn} onClick={() => setMacroEdit(null)}>取消</button>
+                  <button style={S.btnPrimary} onClick={saveMacro}>保存</button>
+                </div>
+              </div>
+            )}
+            {macroMsg ? (
+              <div style={{ marginTop: 8, fontSize: 12, color: macroMsg.kind === "err" ? C.danger : C.ok }}>{macroMsg.text}</div>
+            ) : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <button style={S.btn} onClick={() => setShowMacros(false)}>关闭</button>
+            </div>
+          </div>
         </div>
       ) : null}
 

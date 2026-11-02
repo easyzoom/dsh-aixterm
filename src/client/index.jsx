@@ -253,7 +253,13 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   const lineRef = useRef("");
   const escRef = useRef(0);
   const suggestionRef = useRef(null);
+  const lineTimesRef = useRef(new Map());
+  const lastFilledLineRef = useRef(0);
+  const gutterRafRef = useRef(0);
+  const gutterUpdateRef = useRef(null);
   const [suggestion, setSuggestion] = useState(null);
+  const [gutterRows, setGutterRows] = useState([]);
+  const [gutterLineH, setGutterLineH] = useState(0);
   const zmodemSendRef = useRef(null);
   const zfileRef = useRef(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -385,6 +391,27 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         const key = rules && rules.length ? JSON.stringify(rules) : "";
         if (hlRef.current.key !== key) hlRef.current = { key, fn: key ? buildHighlighter(rules) : null };
         term.write(hlRef.current.fn ? hlRef.current.fn(text) : text);
+        // Record the first-seen time per physical buffer line for the gutter.
+        try {
+          const now = Date.now();
+          const buf = term.buffer.active;
+          const baseY = buf.baseY;
+          if (baseY < lastFilledLineRef.current) {
+            lineTimesRef.current.clear();
+            lastFilledLineRef.current = 0;
+          }
+          // Fill missing timestamps for new lines and for the visible viewport,
+          // so on-screen lines carry a time too.
+          const start = Math.min(lastFilledLineRef.current, buf.viewportY);
+          const end = Math.max(baseY, buf.viewportY + term.rows - 1);
+          for (let l = start; l <= end; l += 1) {
+            if (!lineTimesRef.current.has(l)) lineTimesRef.current.set(l, now);
+          }
+          lastFilledLineRef.current = Math.max(lastFilledLineRef.current, baseY + 1);
+          scheduleGutter();
+        } catch {
+          /* gutter bookkeeping failed */
+        }
       } catch {
         /* terminal gone */
       }
@@ -429,6 +456,42 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     } catch {
       /* zmodem unavailable */
     }
+
+    const updateGutterNow = () => {
+      const mode = prefsRef.current && prefsRef.current.gutter;
+      if (!mode || mode === "off") {
+        setGutterRows([]);
+        return;
+      }
+      const buf = term.buffer.active;
+      const top = buf.viewportY;
+      const rows = [];
+      for (let i = 0; i < term.rows; i += 1) {
+        const line = top + i;
+        rows.push({ no: line + 1, time: lineTimesRef.current.get(line) || "" });
+      }
+      setGutterRows(rows);
+      const screen = term.element && term.element.querySelector(".xterm-screen");
+      if (screen) {
+        const h = screen.getBoundingClientRect().height;
+        if (h > 0 && term.rows > 0) setGutterLineH(h / term.rows);
+      }
+    };
+    const scheduleGutter = () => {
+      if (gutterRafRef.current) return;
+      gutterRafRef.current = requestAnimationFrame(() => {
+        gutterRafRef.current = 0;
+        try {
+          updateGutterNow();
+        } catch {
+          /* terminal disposed */
+        }
+      });
+    };
+    gutterUpdateRef.current = () => scheduleGutter();
+    const renderDisposable = term.onRender(() => scheduleGutter());
+    const scrollDisposable = term.onScroll(() => scheduleGutter());
+    const gutterResizeDisposable = term.onResize(() => scheduleGutter());
 
     const es = new EventSource(PREFIX + "/term/stream?terminalId=" + encodeURIComponent(terminalId));
     es.onmessage = (e) => {
@@ -545,6 +608,14 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         /* ignore */
       }
       try {
+        renderDisposable.dispose();
+        scrollDisposable.dispose();
+        gutterResizeDisposable.dispose();
+        if (gutterRafRef.current) cancelAnimationFrame(gutterRafRef.current);
+      } catch {
+        /* ignore */
+      }
+      try {
         oscDisposable && oscDisposable.dispose();
       } catch {
         /* ignore */
@@ -554,6 +625,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
       } catch {
         /* ignore */
       }
+      gutterUpdateRef.current = null;
       termRef.current = null;
       fitRef.current = null;
     };
@@ -572,6 +644,14 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
       /* options not ready */
     }
   }, [prefs && prefs.fontSize, prefs && prefs.theme, prefs && prefs.fontFamily, prefs && prefs.lineHeight]);
+
+  useEffect(() => {
+    try {
+      gutterUpdateRef.current && gutterUpdateRef.current();
+    } catch {
+      /* terminal not ready */
+    }
+  }, [prefs && prefs.gutter, prefs && prefs.fontSize, prefs && prefs.lineHeight]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -654,21 +734,73 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     ["重置终端", resetTerminal],
   ];
 
+  const gutterMode = (prefs && prefs.gutter) || "off";
+  const gutterWidth = gutterMode === "off" ? 0 : gutterMode === "both" ? 96 : 64;
+  const fmtGutterTime = (ts) => {
+    if (!ts) return "";
+    try {
+      return new Date(ts).toTimeString().slice(0, 8);
+    } catch {
+      return "";
+    }
+  };
+  const gutterLines = gutterRows.map((r, i) => {
+    const label =
+      gutterMode === "time" ? fmtGutterTime(r.time) : gutterMode === "line" ? String(r.no) : `${r.no} ${fmtGutterTime(r.time)}`;
+    return (
+      <div
+        key={i}
+        style={{
+          height: gutterLineH || 16,
+          lineHeight: `${gutterLineH || 16}px`,
+          paddingRight: 6,
+          textAlign: gutterMode === "line" ? "right" : "left",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+        }}
+      >
+        {label}
+      </div>
+    );
+  });
+
   return (
     <div style={{ position: "relative", display: visible ? "block" : "none", flex: 1, minHeight: 0 }}>
+      {gutterWidth ? (
+        <div
+          data-aixterm-gutter="1"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: gutterWidth,
+            background: C.panel,
+            borderRight: `1px solid ${C.border}`,
+            paddingTop: 6,
+            fontFamily: "ui-monospace, monospace",
+            fontSize: 10.5,
+            color: C.dim,
+            overflow: "hidden",
+            userSelect: "none",
+          }}
+        >
+          {gutterLines}
+        </div>
+      ) : null}
       <div
         ref={hostRef}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY });
         }}
-        style={{ position: "absolute", inset: 0, padding: "6px 8px", overflow: "hidden" }}
+        style={{ position: "absolute", top: 0, bottom: 0, right: 0, left: gutterWidth, padding: "6px 8px", overflow: "hidden" }}
       />
       {suggestion ? (
         <div
           style={{
             position: "absolute",
-            left: 16,
+            left: (gutterMode !== "off" ? (gutterMode === "both" ? 96 : 64) : 0) + 16,
             bottom: 10,
             zIndex: 5,
             background: C.panel,
@@ -1419,9 +1551,9 @@ function AixtermApp() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off" };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -2970,6 +3102,15 @@ function AixtermApp() {
                 onChange={(e) => updatePrefs({ suggestions: e.target.checked })}
               />
               <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              <span style={S.muted}>{tr("行号 / 时间戳边栏", "Line-number / timestamp gutter")}</span>
+              <select style={S.input} value={prefs.gutter || "off"} onChange={(e) => updatePrefs({ gutter: e.target.value })}>
+                <option value="off">{tr("关闭", "Off")}</option>
+                <option value="line">{tr("行号", "Line numbers")}</option>
+                <option value="time">{tr("时间戳", "Timestamps")}</option>
+                <option value="both">{tr("行号 + 时间戳", "Both")}</option>
+              </select>
             </label>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
               <div style={{ ...S.muted, marginBottom: 6 }}>{tr("安全锁定", "Lock screen")}</div>

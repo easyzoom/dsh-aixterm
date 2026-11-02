@@ -26,6 +26,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
 - **Split view** — single, two panes side by side, two panes stacked, or a 2×2 quad grid; the tab-bar button cycles the layouts and every extra pane picks its terminal from a dropdown.
 - **Command history and fuzzy suggestions** — commands typed in a terminal are recorded per session (persisted, deduplicated); typing a prefix shows up to five history matches and Tab completes the first one. Suggestions are hidden automatically in full-screen programs (alternate screen: vim, top, less …).
+- **Line-number / timestamp gutter** — optional left gutter showing buffer line numbers, wall-clock timestamps, or both; it follows scrolling and is per-terminal.
 - **Comfort features** — session search and duplicate, terminal find (`Ctrl+F`), context menu (copy/paste/find/download log/clear screen/clear scrollback/reset terminal), five colour themes, font family/size/line height, keyword highlighting (custom patterns + colours), broadcast input, log export (txt/HTML).
 - **Auto-reconnect** — terminals reconnect with exponential backoff after a drop.
 - **Danger-command approval** — agent-initiated `aixterm_run` / `aixterm_term_send` calls matching a configurable pattern list wait for the human's approval, and fail closed when no approval surface exists.

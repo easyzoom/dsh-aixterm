@@ -75,8 +75,12 @@ The plugin registers an embedded **aixterm** skill and a set of tools, so the ds
 - `把 test 的资源情况汇总一下` → `aixterm_analyze`
 - `帮我加一个到 10.0.0.5 的会话，用户 root` → `aixterm_create_session`
 - `test 上有哪些 tmux 会话` → `aixterm_tmux_sessions`
+- `在 test 的终端里执行 make` → `aixterm_term_send` with `session` (writes to the open terminal, no terminalId needed)
+- `所有 SSH 服务器执行 uptime` → `aixterm_run_all` (one batch approval for dangerous commands)
+- `把 deploy 宏在所有机器上跑一遍` → `aixterm_run_macro`
+- `看看 AI 面板刚才怎么说的` → `aixterm_ai_history`
 
-Tools accept a session id **or exact name**, so `@<session name>` references work.
+Tools accept a session id **or exact name**, so `@<session name>` references work. The AI panel history is shared with the chat.
 
 ## Usage
 

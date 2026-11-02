@@ -699,6 +699,15 @@ function MonitorPanel({ sessionId }) {
     </div>
   );
   const pctText = (v) => (v === null || v === undefined ? "—" : Math.round(v) + "%");
+  const fmtUptime = (sec) => {
+    if (sec === null || sec === undefined) return "—";
+    const days = Math.floor(sec / 86400);
+    const hours = Math.floor((sec % 86400) / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    if (days > 0) return `${days}天${hours}时`;
+    if (hours > 0) return `${hours}时${mins}分`;
+    return `${mins}分`;
+  };
   const gb = (kb) => (kb ? (kb / 1024 / 1024).toFixed(1) + "G" : "—");
 
   // Network rate from consecutive samples.
@@ -757,7 +766,18 @@ function MonitorPanel({ sessionId }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.dim, marginTop: 6 }}>
         <span>负载 {m && m.load ? `${m.load.one.toFixed(2)} ${m.load.five.toFixed(2)} ${m.load.fifteen.toFixed(2)}` : "—"}</span>
-        <span>↓{fmtRate(rxRate)} ↑{fmtRate(txRate)}</span>
+        <span>
+          ↓{fmtRate(rxRate)} ↑{fmtRate(txRate)}
+          {m && m.tempC ? ` · ${m.tempC.toFixed(1)}°C` : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.dim, marginTop: 3 }}>
+        <span title={`${(m && m.hostname) || ""} ${(m && m.kernel) || ""}`}>
+          {m && m.hostname ? m.hostname : "—"} · {m && m.kernel ? m.kernel : "—"}
+        </span>
+        <span title={m && m.users && m.users.length ? m.users.join(", ") : ""}>
+          开机 {m ? fmtUptime(m.uptimeSec) : "—"} · 用户 {m && m.users ? m.users.length : 0}
+        </span>
       </div>
     </div>
   );
@@ -1158,6 +1178,10 @@ function AixtermApp() {
   const [serialPorts, setSerialPorts] = useState([]);
   const [showAi, setShowAi] = useState(false);
   const [termConfig, setTermConfig] = useState(null);
+  const [lockInfo, setLockInfo] = useState({ locked: false, hasMaster: false, idleMinutes: 15 });
+  const [lockPw, setLockPw] = useState("");
+  const [lockMsg, setLockMsg] = useState(null);
+  const [newMaster, setNewMaster] = useState("");
 
   const loadSessions = useCallback(async () => {
     try {
@@ -1198,6 +1222,92 @@ function AixtermApp() {
       }
     })();
   }, []);
+
+  const refreshLock = useCallback(async () => {
+    try {
+      const r = await fetch(PREFIX + "/lock/status");
+      const d = await r.json();
+      if (d && d.ok) setLockInfo({ locked: Boolean(d.locked), hasMaster: Boolean(d.hasMaster), idleMinutes: d.idleMinutes });
+    } catch {
+      /* lock status unavailable */
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLock();
+    const timer = setInterval(refreshLock, 30000);
+    return () => clearInterval(timer);
+  }, [refreshLock]);
+
+  // Report user activity so idle auto-lock measures real inactivity.
+  useEffect(() => {
+    let last = Date.now();
+    const onActivity = () => {
+      last = Date.now();
+    };
+    window.addEventListener("mousemove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    const timer = setInterval(() => {
+      if (Date.now() - last < 120000) postJson("/lock/touch", {}).catch(() => {});
+    }, 60000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("mousemove", onActivity);
+      window.removeEventListener("keydown", onActivity);
+    };
+  }, []);
+
+  async function unlockNow() {
+    setLockMsg(null);
+    try {
+      const d = await postJson("/lock/unlock", { password: lockPw });
+      if (d && d.ok) {
+        setLockPw("");
+        await refreshLock();
+      } else {
+        setLockMsg("密码错误");
+      }
+    } catch (e) {
+      setLockMsg(String(e));
+    }
+  }
+
+  async function lockNow() {
+    try {
+      await postJson("/lock/lock", {});
+      await refreshLock();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function setupMaster() {
+    if (!newMaster || newMaster.length < 4) {
+      setLockMsg("主密码至少 4 位");
+      return;
+    }
+    try {
+      const d = await postJson("/lock/setup", { password: newMaster, idleMinutes: lockInfo.idleMinutes });
+      if (d && d.ok) {
+        setNewMaster("");
+        setLockMsg(null);
+        await refreshLock();
+      } else {
+        setLockMsg((d && d.error) || "设置失败");
+      }
+    } catch (e) {
+      setLockMsg(String(e));
+    }
+  }
+
+  async function setIdleMinutes(minutes) {
+    try {
+      await postJson("/lock/idle", { minutes });
+      await refreshLock();
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -1354,9 +1464,7 @@ function AixtermApp() {
     if (!file) return;
     try {
       const text = await file.text();
-      const ext = (file.name.split(".").pop() || "").toLowerCase();
-      const format = ext === "xsh" ? "xsh" : ext === "mxtsessions" ? "moba" : "json";
-      const d = await postJson("/import", { format, data: text });
+      const d = await postJson("/import", { format: "auto", filename: file.name, data: text });
       if (!d || !d.ok) throw new Error((d && d.error) || "导入失败");
       setIoMsg({ kind: "ok", text: `已导入 ${d.created} 个会话${d.skipped ? `，跳过 ${d.skipped} 个重复` : ""}` });
       await loadSessions();
@@ -1568,6 +1676,9 @@ function AixtermApp() {
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: 0.2 }}>连接</span>
           <div style={{ display: "flex", gap: 6 }}>
+            {lockInfo.hasMaster ? (
+              <button style={S.btn} title="立即锁定" onClick={lockNow}>🔒</button>
+            ) : null}
             <button style={S.btn} title="SSH 密钥管理" onClick={openKeys}>🔑</button>
             <button style={S.btn} title="导入 / 导出会话" onClick={() => setShowIO(true)}>⇅</button>
             <button style={S.btnPrimary} onClick={() => setShowCreate(true)}>+ 新建</button>
@@ -1793,6 +1904,41 @@ function AixtermApp() {
         </aside>
       ) : null}
 
+      {/* lock overlay */}
+      {lockInfo.locked ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 100,
+            background: "rgba(5,8,12,0.94)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div style={{ fontSize: 40, opacity: 0.7 }}>🔒</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>会话已锁定</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...S.input, width: 220 }}
+              type="password"
+              autoFocus
+              value={lockPw}
+              onChange={(e) => setLockPw(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") unlockNow();
+              }}
+              placeholder="输入主密码解锁"
+            />
+            <button style={S.btnPrimary} onClick={unlockNow}>解锁</button>
+          </div>
+          {lockMsg ? <div style={{ color: C.danger, fontSize: 12 }}>{lockMsg}</div> : null}
+        </div>
+      ) : null}
+
       {/* SSH keys modal */}
       {showKeys ? (
         <div
@@ -1917,6 +2063,37 @@ function AixtermApp() {
                 <option value="light">浅色</option>
               </select>
             </label>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
+              <div style={{ ...S.muted, marginBottom: 6 }}>安全锁定</div>
+              {lockInfo.hasMaster ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ color: C.ok }}>主密码已设置</span>
+                  <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={lockNow}>立即锁定</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <input
+                    style={{ ...S.input, flex: 1 }}
+                    type="password"
+                    value={newMaster}
+                    onChange={(e) => setNewMaster(e.target.value)}
+                    placeholder="设置主密码（4 位以上）"
+                  />
+                  <button style={S.btn} onClick={setupMaster}>设置</button>
+                </div>
+              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={S.muted}>空闲自动锁定（分钟，0 关闭）</span>
+                <input
+                  style={{ ...S.input, width: 80 }}
+                  type="number"
+                  min="0"
+                  value={lockInfo.idleMinutes}
+                  onChange={(e) => setIdleMinutes(e.target.value)}
+                />
+              </label>
+              {lockMsg ? <div style={{ color: C.danger, marginTop: 6 }}>{lockMsg}</div> : null}
+            </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={S.muted}>终端输出本地保存</span>

@@ -36,6 +36,9 @@
 - **AI 助手面板** —— 就当前终端向模型提问；它会看到会话、当前目录、最近命令和终端输出，建议的命令可一键执行。
 - **终端输出本地保存** —— 按会话保存到可配置目录（`saveScrollback`、`scrollbackDir`），标签关闭后 AI 仍可分析历史。
 - **对话内 `@` 会话分析** —— `aixterm_read_log` / `aixterm_analyze` 支持用会话名定位，agent 可分析对话中 `@<会话名>` 引用的终端。
+- **锁屏、主密码与空闲自动锁定** —— 设置主密码（scrypt 哈希）后可手动锁定，或空闲 N 分钟后自动锁定；锁定时除锁接口外所有 API 返回 423。
+- **广泛的会话导入** —— 自动识别 Xshell `.xsh`、MobaXterm `.mxtsessions`、SecureCRT `.ini`，以及 WindTerm、FinalShell、Termius、Electerm、NyaTerm 的 JSON，另含本插件导出格式。
+- **更丰富的资源监控** —— CPU、内存、负载、磁盘、网络速率之外，新增主机名、内核、开机时长、登录用户与（可用时）SoC 温度。
 - **可配置数据目录** —— 会话文件、加密密钥、终端回滚日志同一目录（插件配置 `dataDir`，默认 `$DSH_HOME/aixterm`）。
 
 ## 安装

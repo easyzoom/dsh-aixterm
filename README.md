@@ -36,6 +36,9 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **AI assistant panel** — ask the model about the current terminal; it sees the session, cwd, recent commands and scrollback, and suggested commands can be run with one click.
 - **Scrollback persistence** — terminal output is saved per session under a configurable directory (`saveScrollback`, `scrollbackDir`), so the AI can analyze history after the tab closes.
 - **`@`-session analysis for agents** — `aixterm_read_log` / `aixterm_analyze` accept a session name, letting the agent analyze a terminal the conversation references with `@<name>`.
+- **Lock screen, master password and idle auto-lock** — set a master password (scrypt) to lock the panel manually or after N idle minutes; every API except the lock endpoints returns 423 while locked.
+- **Wide session import** — auto-detects Xshell `.xsh`, MobaXterm `.mxtsessions`, SecureCRT `.ini`, WindTerm, FinalShell, Termius, Electerm and NyaTerm JSON, plus this plugin's own export.
+- **Richer monitor** — CPU, memory, load, disk, network rates plus hostname, kernel, uptime, logged-in users and (when available) SoC temperature.
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install

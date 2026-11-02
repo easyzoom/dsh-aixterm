@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseXshell, parseMoba, parseJsonSessions, exportJson, exportMoba } from "../lib/import.js";
+import { parseXshell, parseMoba, parseJsonSessions, parseAuto, exportJson, exportMoba } from "../lib/import.js";
 
 test("import: Xshell .xsh", () => {
   const text = `[CONNECTION]\nProtocol=SSH\nHost=10.0.0.5\nPort=2222\n[CONNECTION:AUTHENTICATION]\nUserName=root\n\n[CONNECTION]\nProtocol=SSH\nHost=10.0.0.6\nPort=22\n[CONNECTION:AUTHENTICATION]\nUserName=admin\n`;
@@ -34,4 +34,26 @@ test("import: JSON round-trip and Moba export round-trip", () => {
   assert.equal(back.length, 2);
   assert.equal(back[0].host, "10.1.1.1");
   assert.equal(back[1].port, 2222);
+});
+
+test("import: SecureCRT .ini", () => {
+  const text = "[SSH2]\r\nHostname=10.9.8.7\r\nPort=2222\r\nUsername=crt\r\n";
+  const out = parseAuto(text, "box.ini");
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], { name: "crt@10.9.8.7", group: "SecureCRT", host: "10.9.8.7", port: 2222, user: "crt" });
+});
+
+test("import: generic JSON covers electerm / termius / finalshell shapes", () => {
+  const electerm = JSON.stringify([{ host: "10.2.2.2", port: 22, username: "e", title: "el" }]);
+  const termius = JSON.stringify({ hosts: [{ label: "tm", address: "10.3.3.3", port: 2222, username: "t" }] });
+  const finalshell = JSON.stringify([{ name: "fs", host: "10.4.4.4", port: 22, user_name: "f" }]);
+  for (const [text, host] of [
+    [electerm, "10.2.2.2"],
+    [termius, "10.3.3.3"],
+    [finalshell, "10.4.4.4"],
+  ]) {
+    const out = parseAuto(text, "x.json");
+    assert.equal(out.length, 1, text);
+    assert.equal(out[0].host, host);
+  }
 });

@@ -14,6 +14,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
+import Zmodem from "zmodem.js/src/zmodem_browser.js";
 import xtermCss from "@xterm/xterm/css/xterm.css";
 
 const PREFIX = "/dsh-aixterm";
@@ -91,7 +92,7 @@ const LIGHT_THEME = {
   brightWhite: "#8c959f",
 };
 
-const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", keyId: "", group: "", proxyJump: "", credentialEnv: "" };
+const EMPTY_FORM = { kind: "ssh", name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", keyId: "", group: "", proxyJump: "", credentialEnv: "", x11: false, serialPath: "", baudRate: "115200", dataBits: "8", stopBits: "1", parity: "none" };
 
 const S = {
   btn: {
@@ -181,6 +182,8 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
   const onCwdRef = useRef(onCwd);
   const onInputRef = useRef(onInput);
   const searchRef = useRef(null);
+  const zmodemSendRef = useRef(null);
+  const zfileRef = useRef(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [menu, setMenu] = useState(null);
@@ -269,10 +272,61 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
     };
     const raf = requestAnimationFrame(doFit);
 
+    // ZMODEM: detect sz/rz transfers on the raw byte stream. Remote `sz`
+    // downloads are saved to disk automatically; remote `rz` asks for local
+    // files through a hidden picker.
+    let zsentry = null;
+    try {
+      zsentry = new Zmodem.Sentry({
+        to_terminal: (octets) => {
+          try {
+            term.write(octets);
+          } catch {
+            /* terminal gone */
+          }
+        },
+        sender: (octets) => {
+          postJson("/term/input", { terminalId, dataB64: bytesToB64(octets) }).catch(() => {});
+        },
+        on_detect: (detection) => {
+          let session;
+          try {
+            session = detection.confirm();
+          } catch {
+            return;
+          }
+          if (session.type === "send") {
+            zmodemSendRef.current = session;
+            if (zfileRef.current) zfileRef.current.click();
+          } else {
+            session.on("offer", (xfer) => {
+              xfer
+                .accept()
+                .then(() => {
+                  try {
+                    Zmodem.Browser.save_to_disk(xfer.get_payloads(), xfer.get_details().name);
+                  } catch {
+                    /* save failed */
+                  }
+                })
+                .catch(() => {});
+            });
+          }
+        },
+        on_retract: () => {
+          zmodemSendRef.current = null;
+        },
+      });
+    } catch {
+      /* zmodem unavailable */
+    }
+
     const es = new EventSource(PREFIX + "/term/stream?terminalId=" + encodeURIComponent(terminalId));
     es.onmessage = (e) => {
       try {
-        term.write(b64ToBytes(e.data));
+        const bytes = b64ToBytes(e.data);
+        if (zsentry && zsentry.consume(bytes)) return;
+        term.write(bytes);
       } catch {
         /* bad chunk */
       }
@@ -439,6 +493,28 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
           <button style={{ ...S.btn, padding: "1px 7px" }} title="关闭" onClick={() => setFindOpen(false)}>✕</button>
         </div>
       ) : null}
+      <input
+        ref={zfileRef}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          const session = zmodemSendRef.current;
+          if (session && files.length) {
+            try {
+              Zmodem.Browser.send_files(session, files, {})
+                .catch(() => {})
+                .finally(() => {
+                  zmodemSendRef.current = null;
+                });
+            } catch {
+              zmodemSendRef.current = null;
+            }
+          }
+          e.target.value = "";
+        }}
+      />
       {menu ? (
         <div
           onClick={(e) => e.stopPropagation()}
@@ -970,6 +1046,7 @@ function AixtermApp() {
   const [showIO, setShowIO] = useState(false);
   const [ioMsg, setIoMsg] = useState(null);
   const ioFileRef = useRef(null);
+  const [serialPorts, setSerialPorts] = useState([]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -998,6 +1075,18 @@ function AixtermApp() {
   useEffect(() => {
     loadKeys();
   }, [loadKeys]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(PREFIX + "/serial/ports");
+        const d = await r.json();
+        if (d && d.ok) setSerialPorts(d.ports || []);
+      } catch {
+        /* serial listing unavailable */
+      }
+    })();
+  }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId) || null;
 
@@ -1244,13 +1333,41 @@ function AixtermApp() {
   }
 
   async function createSession() {
-    if (!form.host || !form.user) {
+    if (form.kind === "serial") {
+      if (!form.serialPath) {
+        setMsg({ kind: "err", text: "串口设备路径必填" });
+        return;
+      }
+    } else if (!form.host || !form.user) {
       setMsg({ kind: "err", text: "主机和用户名必填" });
       return;
     }
     setBusy(true);
     setMsg(null);
     try {
+      if (form.kind === "serial") {
+        const d = await postJson("/sessions", {
+          kind: "serial",
+          name: form.name || form.serialPath,
+          group: form.group || "默认",
+          serial: {
+            path: form.serialPath,
+            baudRate: Number(form.baudRate) || 115200,
+            dataBits: Number(form.dataBits) || 8,
+            stopBits: Number(form.stopBits) || 1,
+            parity: form.parity,
+          },
+        });
+        if (d && d.ok) {
+          setShowCreate(false);
+          setForm(EMPTY_FORM);
+          await loadSessions();
+          if (d.session) openTerminal(d.session);
+        } else {
+          setMsg({ kind: "err", text: (d && d.error) || "保存失败" });
+        }
+        return;
+      }
       const body = {
         name: form.name || form.host,
         group: form.group || "默认",
@@ -1258,6 +1375,7 @@ function AixtermApp() {
         port: Number(form.port) || 22,
         user: form.user,
         auth: { kind: form.authKind },
+        x11: Boolean(form.x11),
       };
       if (form.authKind === "key") {
         body.auth.keyPath = form.keyPath;
@@ -1751,7 +1869,63 @@ function AixtermApp() {
             onClick={(e) => e.stopPropagation()}
             style={{ width: 520, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>新建 SSH 会话</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{form.kind === "serial" ? "新建串口会话" : "新建 SSH 会话"}</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button style={form.kind === "ssh" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "ssh")}>SSH</button>
+              <button style={form.kind === "serial" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "serial")}>串口</button>
+            </div>
+            {form.kind === "serial" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>名称</span>
+                  <input style={S.input} value={form.name} onChange={(e) => patch("name", e.target.value)} placeholder="例如 板子串口" />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>分组</span>
+                  <input style={S.input} value={form.group} onChange={(e) => patch("group", e.target.value)} placeholder="默认" />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                  <span style={S.muted}>串口设备</span>
+                  <input list="aixterm-serial-ports" style={S.input} value={form.serialPath} onChange={(e) => patch("serialPath", e.target.value)} placeholder="/dev/ttyUSB0 或 COM3" />
+                  <datalist id="aixterm-serial-ports">
+                    {serialPorts.map((p) => (
+                      <option key={p.path} value={p.path}>
+                        {p.manufacturer || p.serialNumber || ""}
+                      </option>
+                    ))}
+                  </datalist>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>波特率</span>
+                  <input list="aixterm-baud" style={S.input} value={form.baudRate} onChange={(e) => patch("baudRate", e.target.value)} />
+                  <datalist id="aixterm-baud">
+                    {["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600", "1500000"].map((b) => (
+                      <option key={b} value={b} />
+                    ))}
+                  </datalist>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>数据位 / 停止位 / 校验</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select style={S.input} value={form.dataBits} onChange={(e) => patch("dataBits", e.target.value)}>
+                      {["8", "7", "6", "5"].map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                    <select style={S.input} value={form.stopBits} onChange={(e) => patch("stopBits", e.target.value)}>
+                      {["1", "1.5", "2"].map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                    <select style={S.input} value={form.parity} onChange={(e) => patch("parity", e.target.value)}>
+                      {["none", "even", "odd"].map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                </label>
+              </div>
+            ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={S.muted}>名称</span>
@@ -1824,7 +1998,12 @@ function AixtermApp() {
               ) : (
                 <div style={{ ...S.muted, gridColumn: "1 / span 2" }}>使用 ssh-agent（SSH_AUTH_SOCK）</div>
               )}
+              <label style={{ display: "flex", alignItems: "center", gap: 6, gridColumn: "1 / span 2", ...S.muted, cursor: "pointer" }} title="需要本机运行 X server（DISPLAY）">
+                <input type="checkbox" checked={form.x11} onChange={(e) => patch("x11", e.target.checked)} />
+                X11 转发（需要本机运行 X server）
+              </label>
             </div>
+            )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button style={S.btn} onClick={() => setShowCreate(false)}>取消</button>
               <button style={S.btnPrimary} onClick={createSession} disabled={busy}>{busy ? "保存中…" : "保存并打开"}</button>

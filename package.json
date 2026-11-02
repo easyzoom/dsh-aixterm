@@ -67,7 +67,9 @@
   },
   "dependencies": {
     "node-pty": "^1.1.0",
-    "ssh2": "^1.17.0"
+    "serialport": "^13.0.0",
+    "ssh2": "^1.17.0",
+    "zmodem.js": "^0.1.10"
   },
   "devDependencies": {
     "@xterm/addon-fit": "^0.11.0",

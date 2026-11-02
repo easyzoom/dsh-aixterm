@@ -30,6 +30,9 @@
 - **凭据引用** —— 会话可指定 dsh 凭据服务中的 key 名（`credentialEnv`），不必存密码。
 - **会话导入导出** —— 导出 JSON（可往返导入）或 MobaXterm `.mxtsessions`；导入 Xshell `.xsh`、MobaXterm 与本插件 JSON。不含密码，跳板按名称保留。
 - **SSH 密钥管理** —— 生成 ed25519 或导入已有私钥，会话按名称引用；密钥存于 `<dataDir>/keys`（权限 600）。
+- **串口会话** —— 本机串口（设备路径、波特率、数据位/停止位/校验）与 SSH 共用同一终端界面。
+- **X11 转发** —— 会话可开启 X11 转发到本机 X server（需服务器装 `xauth`、本机有 `DISPLAY`）。
+- **ZMODEM** —— 远端 `sz` 下载自动保存到本地；远端 `rz` 弹出本地文件选择（基于 zmodem.js）。
 - **可配置数据目录** —— 会话文件、加密密钥、终端回滚日志同一目录（插件配置 `dataDir`，默认 `$DSH_HOME/aixterm`）。
 
 ## 安装

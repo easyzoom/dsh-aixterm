@@ -1702,6 +1702,11 @@ function AixtermApp() {
         setMsg({ kind: "err", text: "串口设备路径必填" });
         return;
       }
+    } else if (form.kind === "telnet") {
+      if (!form.host) {
+        setMsg({ kind: "err", text: "主机必填" });
+        return;
+      }
     } else if (!form.host || !form.user) {
       setMsg({ kind: "err", text: "主机和用户名必填" });
       return;
@@ -1711,6 +1716,26 @@ function AixtermApp() {
     try {
       const url = editingId ? "/sessions/update" : "/sessions";
       const base = editingId ? { id: editingId } : {};
+      if (form.kind === "telnet") {
+        const d = await postJson(url, {
+          ...base,
+          kind: "telnet",
+          name: form.name || form.host,
+          group: form.group || "默认",
+          host: form.host,
+          port: Number(form.port) || 23,
+        });
+        if (d && d.ok) {
+          setShowCreate(false);
+          setEditingId(null);
+          setForm(EMPTY_FORM);
+          await loadSessions();
+          if (!editingId && d.session) openTerminal(d.session);
+        } else {
+          setMsg({ kind: "err", text: (d && d.error) || "保存失败" });
+        }
+        return;
+      }
       if (form.kind === "serial") {
         const d = await postJson(url, {
           ...base,
@@ -1880,7 +1905,9 @@ function AixtermApp() {
                         <div style={{ fontSize: 11, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {s.kind === "serial"
                             ? `${(s.serial && s.serial.path) || "串口"} @ ${(s.serial && s.serial.baudRate) || ""}`
-                            : `${s.user}@{s.host}:${s.port}`}
+                            : s.kind === "telnet"
+                              ? `telnet ${s.host}:${s.port}`
+                              : `${s.user}@{s.host}:${s.port}`}
                         </div>
                       </div>
                     </div>
@@ -2388,12 +2415,37 @@ function AixtermApp() {
             onClick={(e) => e.stopPropagation()}
             style={{ width: 520, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{editingId ? "编辑会话" : form.kind === "serial" ? "新建串口会话" : "新建 SSH 会话"}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{editingId ? "编辑会话" : form.kind === "serial" ? "新建串口会话" : form.kind === "telnet" ? "新建 Telnet 会话" : "新建 SSH 会话"}</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button style={form.kind === "ssh" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "ssh")}>SSH</button>
+              <button
+                style={form.kind === "telnet" ? S.btnPrimary : S.btn}
+                onClick={() => setForm((f) => ({ ...f, kind: "telnet", port: f.kind === "ssh" ? "23" : f.port }))}
+              >
+                Telnet
+              </button>
               <button style={form.kind === "serial" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "serial")}>串口</button>
             </div>
-            {form.kind === "serial" ? (
+            {form.kind === "telnet" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>名称</span>
+                  <input style={S.input} value={form.name} onChange={(e) => patch("name", e.target.value)} placeholder="例如 交换机" />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>分组</span>
+                  <input style={S.input} value={form.group} onChange={(e) => patch("group", e.target.value)} placeholder="默认" />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>主机</span>
+                  <input style={S.input} value={form.host} onChange={(e) => patch("host", e.target.value)} placeholder="192.168.1.20" />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={S.muted}>端口</span>
+                  <input style={S.input} value={form.port} onChange={(e) => patch("port", e.target.value)} placeholder="23" />
+                </label>
+              </div>
+            ) : form.kind === "serial" ? (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={S.muted}>名称</span>

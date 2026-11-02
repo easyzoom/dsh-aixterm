@@ -21,8 +21,23 @@ test("terminal: local shell echoes, keeps a buffer, persists scrollback", async 
   assert.match(mgr.buffer(id), /AIXTERM_OK/, "buffer holds the command output");
   assert.match(mgr.read(id, 4096), /AIXTERM_OK/, "AI read returns the tail");
 
-  const log = fs.readFileSync(path.join(dir, "terminals", id + ".log"), "utf8");
+  const term = mgr.get(id);
+  assert.ok(term.logPath, "scrollback path assigned");
+  assert.match(path.basename(term.logPath), /^local-\d{4}-/, "named by label and timestamp");
+  const log = fs.readFileSync(term.logPath, "utf8");
   assert.match(log, /AIXTERM_OK/, "scrollback log persisted");
 
+  mgr.close(id);
+});
+
+test("terminal: saveScrollback=false writes no file", async () => {
+  const dir = tmp();
+  const mgr = new TerminalManager({ dataDir: dir, saveScrollback: false });
+  const shell = process.platform === "win32" ? "cmd.exe" : "bash";
+  const id = await mgr.open({ local: { shell }, cols: 80, rows: 24 });
+  await wait(500);
+  const term = mgr.get(id);
+  assert.equal(term.logPath, null, "no log path when saving is disabled");
+  assert.equal(fs.readdirSync(path.join(dir, "terminals")).filter((f) => f.endsWith(".log")).length, 0);
   mgr.close(id);
 });

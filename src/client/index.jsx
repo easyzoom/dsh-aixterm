@@ -553,6 +553,115 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
 
 /* ------------------------------------------------------------------- sftp */
 
+function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
+  const [prompt, setPrompt] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  async function ask(text) {
+    const q = String(text || prompt || "").trim();
+    if (!q) return;
+    setBusy(true);
+    setErr(null);
+    setAnswer("");
+    try {
+      const d = await postJson("/ai/ask", { sessionId, terminalId, cwd, prompt: q });
+      if (d && d.ok) setAnswer(d.answer || "");
+      else setErr((d && d.error) || "AI 调用失败");
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Split the answer into text and fenced code blocks; code blocks get a run button.
+  const parts = [];
+  {
+    const re = /```([A-Za-z0-9_-]*)\n([\s\S]*?)```/g;
+    let last = 0;
+    let m;
+    while ((m = re.exec(answer))) {
+      if (m.index > last) parts.push({ type: "text", text: answer.slice(last, m.index) });
+      parts.push({ type: "code", text: m[2].trim() });
+      last = m.index + m[0].length;
+    }
+    if (last < answer.length) parts.push({ type: "text", text: answer.slice(last) });
+  }
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 380,
+        background: C.panel,
+        borderLeft: `1px solid ${C.border}`,
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 8,
+        boxShadow: "-8px 0 24px rgba(0,0,0,.35)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>AI 助手</span>
+        <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={onClose}>✕</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("解释终端里最近输出中的错误，并给出修复建议")} disabled={busy}>
+          诊断错误
+        </button>
+        <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("根据当前目录和最近命令，建议下一步可以执行的命令")} disabled={busy}>
+          建议下一步
+        </button>
+        <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("总结最近这段终端输出和命令做了什么")} disabled={busy}>
+          总结进展
+        </button>
+      </div>
+      <div style={{ flex: 1, overflow: "auto", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.6 }}>
+        {!answer && !busy && !err ? <div style={S.muted}>向 AI 提问，或使用上面的快捷操作。它会看到当前会话、目录、最近命令和终端输出。</div> : null}
+        {busy ? <div style={S.muted}>思考中…</div> : null}
+        {err ? <div style={{ color: C.danger }}>{err}</div> : null}
+        {parts.map((part, i) =>
+          part.type === "code" ? (
+            <div key={i} style={{ margin: "8px 0", border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
+              <pre style={{ margin: 0, padding: 8, background: C.bg, whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11.5 }}>{part.text}</pre>
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: 4, borderTop: `1px solid ${C.border}` }}>
+                <button
+                  style={{ ...S.btnPrimary, padding: "1px 8px", fontSize: 11 }}
+                  onClick={() => {
+                    if (window.confirm("在终端执行这段命令？\n\n" + part.text)) onExecute(part.text);
+                  }}
+                >
+                  执行
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div key={i} style={{ whiteSpace: "pre-wrap", marginBottom: 6 }}>{part.text}</div>
+          )
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 6, padding: 10, borderTop: `1px solid ${C.border}` }}>
+        <input
+          style={{ ...S.input, flex: 1 }}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) ask();
+          }}
+          placeholder="问 AI，例如：这个报错怎么解决？"
+          disabled={busy}
+        />
+        <button style={S.btnPrimary} onClick={() => ask()} disabled={busy}>发送</button>
+      </div>
+    </div>
+  );
+}
+
 function MonitorPanel({ sessionId }) {
   const [m, setM] = useState(null);
   const [err, setErr] = useState(null);
@@ -1047,6 +1156,8 @@ function AixtermApp() {
   const [ioMsg, setIoMsg] = useState(null);
   const ioFileRef = useRef(null);
   const [serialPorts, setSerialPorts] = useState([]);
+  const [showAi, setShowAi] = useState(false);
+  const [termConfig, setTermConfig] = useState(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -1075,6 +1186,18 @@ function AixtermApp() {
   useEffect(() => {
     loadKeys();
   }, [loadKeys]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(PREFIX + "/config");
+        const d = await r.json();
+        if (d && d.ok) setTermConfig(d);
+      } catch {
+        /* config unavailable */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -1566,7 +1689,7 @@ function AixtermApp() {
       </aside>
 
       {/* center: tabs + terminals */}
-      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
         <div style={{ display: "flex", alignItems: "stretch", borderBottom: `1px solid ${C.border}`, background: C.panel, minHeight: 38, overflowX: "auto" }}>
           {tabs.length === 0 ? (
             <div style={{ ...S.muted, padding: "0 12px", display: "flex", alignItems: "center" }}>未打开终端</div>
@@ -1608,6 +1731,9 @@ function AixtermApp() {
               <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
               同步输入
             </label>
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="AI 助手（基于当前终端上下文）" onClick={() => setShowAi((v) => !v)}>
+              ✦ AI
+            </button>
             <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="终端设置" onClick={() => setShowSettings(true)}>
               ⚙ 设置
             </button>
@@ -1637,6 +1763,16 @@ function AixtermApp() {
             ))
           )}
         </div>
+
+        {showAi && activeTab ? (
+          <AiPanel
+            sessionId={activeTab.sessionId}
+            terminalId={activeTab.id}
+            cwd={cwdByTerminal[activeTab.id]}
+            onExecute={(cmd) => postJson("/term/input", { terminalId: activeTab.id, data: cmd + "\r" }).catch(() => {})}
+            onClose={() => setShowAi(false)}
+          />
+        ) : null}
       </main>
 
       {/* right: monitor + sftp (ssh sessions only) */}
@@ -1781,6 +1917,18 @@ function AixtermApp() {
                 <option value="light">浅色</option>
               </select>
             </label>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={S.muted}>终端输出本地保存</span>
+                <span style={{ color: termConfig && termConfig.saveScrollback ? C.ok : C.dim }}>
+                  {termConfig ? (termConfig.saveScrollback ? "已开启" : "已关闭") : "—"}
+                </span>
+              </div>
+              <div style={{ ...S.muted, marginTop: 4, wordBreak: "break-all" }}>{termConfig ? termConfig.scrollbackDir : ""}</div>
+              <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
+                用于 AI 分析历史输出；在插件配置中修改 saveScrollback / scrollbackDir
+              </div>
+            </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button style={S.btnPrimary} onClick={() => setShowSettings(false)}>完成</button>
             </div>

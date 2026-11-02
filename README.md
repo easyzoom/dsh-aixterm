@@ -33,6 +33,9 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Serial sessions** — open local serial ports (device path, baud rate, data/stop bits, parity) in the same terminal UI as SSH.
 - **X11 forwarding** — optional per-session forwarding to the local X server (needs `xauth` on the server and `DISPLAY` locally).
 - **ZMODEM** — remote `sz` downloads save to disk automatically; remote `rz` opens a local file picker (powered by zmodem.js).
+- **AI assistant panel** — ask the model about the current terminal; it sees the session, cwd, recent commands and scrollback, and suggested commands can be run with one click.
+- **Scrollback persistence** — terminal output is saved per session under a configurable directory (`saveScrollback`, `scrollbackDir`), so the AI can analyze history after the tab closes.
+- **`@`-session analysis for agents** — `aixterm_read_log` / `aixterm_analyze` accept a session name, letting the agent analyze a terminal the conversation references with `@<name>`.
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install

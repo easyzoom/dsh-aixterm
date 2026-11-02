@@ -39,6 +39,7 @@
 - **锁屏、主密码与空闲自动锁定** —— 设置主密码（scrypt 哈希）后可手动锁定，或空闲 N 分钟后自动锁定；锁定时除锁接口外所有 API 返回 423。
 - **广泛的会话导入** —— 自动识别 Xshell `.xsh`、MobaXterm `.mxtsessions`、SecureCRT `.ini`，以及 WindTerm、FinalShell、Termius、Electerm、NyaTerm 的 JSON，另含本插件导出格式。
 - **更丰富的资源监控** —— CPU、内存、负载、磁盘、网络速率之外，新增主机名、内核、开机时长、登录用户与（可用时）SoC 温度。
+- **tmux 集成** —— 列出 / 新建 / 关闭远端 tmux 会话；打开终端时附加（或创建）命名会话，断线重连后 shell 仍在；`aixterm_tmux_sessions` 向 agent 暴露会话列表。
 - **可配置数据目录** —— 会话文件、加密密钥、终端回滚日志同一目录（插件配置 `dataDir`，默认 `$DSH_HOME/aixterm`）。
 
 ## 安装

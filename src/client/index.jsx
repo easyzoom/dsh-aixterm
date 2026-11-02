@@ -777,6 +777,7 @@ function MonitorPanel({ sessionId }) {
         </span>
         <span title={m && m.users && m.users.length ? m.users.join(", ") : ""}>
           开机 {m ? fmtUptime(m.uptimeSec) : "—"} · 用户 {m && m.users ? m.users.length : 0}
+          {m && m.sessions !== undefined ? ` · 会话 ${m.sessions}` : ""}
         </span>
       </div>
     </div>
@@ -1179,6 +1180,10 @@ function AixtermApp() {
   const [showAi, setShowAi] = useState(false);
   const [termConfig, setTermConfig] = useState(null);
   const [lockInfo, setLockInfo] = useState({ locked: false, hasMaster: false, idleMinutes: 15 });
+  const [tmuxFor, setTmuxFor] = useState(null);
+  const [tmuxInfo, setTmuxInfo] = useState({ available: false, sessions: [] });
+  const [tmuxName, setTmuxName] = useState("");
+  const [tmuxMsg, setTmuxMsg] = useState(null);
   const [lockPw, setLockPw] = useState("");
   const [lockMsg, setLockMsg] = useState(null);
   const [newMaster, setNewMaster] = useState("");
@@ -1323,9 +1328,9 @@ function AixtermApp() {
 
   const activeTab = tabs.find((t) => t.id === activeId) || null;
 
-  async function openTerminal(session) {
+  async function openTerminal(session, tmuxNameArg) {
     // Focus an existing tab for the same session instead of opening a duplicate.
-    if (session) {
+    if (session && !tmuxNameArg) {
       const existing = tabs.find((t) => t.sessionId === session.id);
       if (existing) {
         setActiveId(existing.id);
@@ -1335,7 +1340,9 @@ function AixtermApp() {
     setBusy(true);
     setMsg(null);
     try {
-      const body = session ? { sessionId: session.id, cols: 120, rows: 30 } : { cols: 120, rows: 30 };
+      const body = session
+        ? { sessionId: session.id, cols: 120, rows: 30, ...(tmuxNameArg ? { tmuxName: tmuxNameArg } : {}) }
+        : { cols: 120, rows: 30 };
       const d = await postJson("/term/open", body);
       if (!d || !d.ok) {
         setMsg({ kind: "err", text: (d && d.error) || "打开终端失败" });
@@ -1345,7 +1352,7 @@ function AixtermApp() {
         id: d.terminalId,
         sessionId: session ? session.id : null,
         kind: d.kind || (session ? "ssh" : "local"),
-        title: session ? session.name : "本地终端",
+        title: session ? (tmuxNameArg ? `${session.name} · tmux:${tmuxNameArg}` : session.name) : "本地终端",
       };
       setTabs((ts) => [...ts, tab]);
       setActiveId(tab.id);
@@ -1471,6 +1478,61 @@ function AixtermApp() {
     } catch (e) {
       setIoMsg({ kind: "err", text: String(e.message || e) });
     }
+  }
+
+  async function openTmux(session) {
+    setTmuxFor(session);
+    setTmuxMsg(null);
+    setTmuxName("");
+    await loadTmux(session.id);
+  }
+
+  async function loadTmux(sessionId) {
+    try {
+      const r = await fetch(PREFIX + "/tmux?sessionId=" + encodeURIComponent(sessionId));
+      const d = await r.json();
+      if (d && d.ok) setTmuxInfo({ available: Boolean(d.available), sessions: d.sessions || [] });
+      else setTmuxMsg((d && d.error) || "读取 tmux 失败");
+    } catch (e) {
+      setTmuxMsg(String(e));
+    }
+  }
+
+  async function tmuxOp(op, name) {
+    if (!tmuxFor) return;
+    try {
+      const d = await postJson("/tmux", { sessionId: tmuxFor.id, op, name });
+      if (d && d.ok) {
+        await loadTmux(tmuxFor.id);
+        return true;
+      }
+      setTmuxMsg((d && d.error) || op + " 失败");
+    } catch (e) {
+      setTmuxMsg(String(e));
+    }
+    return false;
+  }
+
+  async function createTmux() {
+    if (!tmuxName) {
+      setTmuxMsg("请填写会话名");
+      return;
+    }
+    if (await tmuxOp("new", tmuxName)) {
+      setTmuxName("");
+      setTmuxMsg(null);
+    }
+  }
+
+  async function killTmux(name) {
+    if (!window.confirm("关闭 tmux 会话 " + name + "？")) return;
+    await tmuxOp("kill", name);
+  }
+
+  function enterTmux(name) {
+    const session = tmuxFor;
+    setTmuxFor(null);
+    if (session) openTerminal(session, name);
   }
 
   async function duplicateSession(id) {
@@ -1740,6 +1802,16 @@ function AixtermApp() {
                       </div>
                       <button
                         style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
+                        title="tmux 会话"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openTmux(s);
+                        }}
+                      >
+                        ▤
+                      </button>
+                      <button
+                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
                         title="复制会话"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1936,6 +2008,62 @@ function AixtermApp() {
             <button style={S.btnPrimary} onClick={unlockNow}>解锁</button>
           </div>
           {lockMsg ? <div style={{ color: C.danger, fontSize: 12 }}>{lockMsg}</div> : null}
+        </div>
+      ) : null}
+
+      {/* tmux modal */}
+      {tmuxFor ? (
+        <div
+          onClick={() => setTmuxFor(null)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 560, maxWidth: "94%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>
+              tmux 会话 · {tmuxFor.name}
+            </div>
+            {!tmuxInfo.available ? (
+              <div style={{ ...S.muted, marginBottom: 10 }}>
+                远端未安装 tmux（可用 opkg/apt 安装后重试）
+              </div>
+            ) : tmuxInfo.sessions.length === 0 ? (
+              <div style={{ ...S.muted, marginBottom: 10 }}>没有运行中的 tmux 会话</div>
+            ) : (
+              <div style={{ marginBottom: 10 }}>
+                {tmuxInfo.sessions.map((t) => (
+                  <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", marginBottom: 6, fontSize: 12 }}>
+                    <span style={{ flex: 1 }}>
+                      <b>{t.name}</b> <span style={S.muted}>· {t.windows} 窗口 · {t.attached} 附加</span>
+                    </span>
+                    <button style={{ ...S.btnPrimary, padding: "1px 8px", fontSize: 11 }} onClick={() => enterTmux(t.name)}>
+                      进入
+                    </button>
+                    <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11, color: C.danger }} onClick={() => killTmux(t.name)}>
+                      关闭
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                style={{ ...S.input, flex: 1 }}
+                value={tmuxName}
+                onChange={(e) => setTmuxName(e.target.value)}
+                placeholder="新会话名（字母/数字/._-）"
+              />
+              <button style={S.btn} onClick={createTmux} disabled={!tmuxInfo.available}>
+                新建
+              </button>
+              <button style={S.btn} onClick={() => loadTmux(tmuxFor.id)}>刷新</button>
+            </div>
+            {tmuxMsg ? <div style={{ color: C.danger, fontSize: 12, marginTop: 8 }}>{tmuxMsg}</div> : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <button style={S.btn} onClick={() => setTmuxFor(null)}>关闭</button>
+            </div>
+          </div>
         </div>
       ) : null}
 

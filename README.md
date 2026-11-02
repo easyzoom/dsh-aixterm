@@ -39,6 +39,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Lock screen, master password and idle auto-lock** — set a master password (scrypt) to lock the panel manually or after N idle minutes; every API except the lock endpoints returns 423 while locked.
 - **Wide session import** — auto-detects Xshell `.xsh`, MobaXterm `.mxtsessions`, SecureCRT `.ini`, WindTerm, FinalShell, Termius, Electerm and NyaTerm JSON, plus this plugin's own export.
 - **Richer monitor** — CPU, memory, load, disk, network rates plus hostname, kernel, uptime, logged-in users and (when available) SoC temperature.
+- **tmux integration** — list, create and kill remote tmux sessions; opening a terminal attaches (or creates) a named session so the shell survives reconnects; `aixterm_tmux_sessions` exposes the list to agents.
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install

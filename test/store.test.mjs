@@ -43,3 +43,29 @@ test("store: key auth stores no secret", () => {
   assert.equal(store.credential(s.id), undefined);
   assert.equal(s.auth.keyPath, "/k/id_ed25519");
 });
+
+test("store: proxyJump and reconnect round-trip, with defaults", () => {
+  const dir = tmpDir();
+  const store = new SessionStore(dir);
+  const a = store.create({ name: "a", host: "10.0.0.1", user: "root", auth: { kind: "password" }, password: "x" });
+  const b = store.create({
+    name: "b",
+    host: "10.0.0.2",
+    user: "root",
+    auth: { kind: "password" },
+    password: "y",
+    proxyJump: a.id,
+    reconnect: false,
+  });
+  assert.equal(a.proxyJump, "", "direct connection by default");
+  assert.equal(a.reconnect, true, "reconnect on by default");
+  assert.equal(b.proxyJump, a.id);
+  assert.equal(b.reconnect, false);
+
+  const reloaded = new SessionStore(dir);
+  assert.equal(reloaded.get(b.id).proxyJump, a.id, "jump host persists");
+  assert.equal(reloaded.get(b.id).reconnect, false, "reconnect preference persists");
+
+  const cleared = store.update(b.id, { proxyJump: "" });
+  assert.equal(cleared.proxyJump, "", "jump host can be cleared");
+});

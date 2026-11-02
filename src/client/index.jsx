@@ -66,7 +66,7 @@ const XTERM_THEME = {
   brightWhite: "#f0f6fc",
 };
 
-const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "" };
+const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "", proxyJump: "" };
 
 const S = {
   btn: {
@@ -473,6 +473,10 @@ function AixtermApp() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [fwdFor, setFwdFor] = useState(null); // session id whose forward panel is open
+  const [forwards, setForwards] = useState([]);
+  const [fwdForm, setFwdForm] = useState({ kind: "local", bindAddr: "127.0.0.1", bindPort: "18422", dstHost: "", dstPort: "22" });
+  const [fwdBusy, setFwdBusy] = useState(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -556,6 +560,60 @@ function AixtermApp() {
     }
   }
 
+  async function loadForwards(sessionId) {
+    try {
+      const r = await fetch(PREFIX + "/forward?sessionId=" + encodeURIComponent(sessionId));
+      const d = await r.json();
+      if (d && d.ok) setForwards(d.forwards || []);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    }
+  }
+
+  function openForwards(session) {
+    setFwdFor(session.id);
+    setForwards([]);
+    loadForwards(session.id);
+  }
+
+  async function createForward() {
+    if (!fwdFor) return;
+    setFwdBusy(true);
+    setMsg(null);
+    try {
+      const body = {
+        sessionId: fwdFor,
+        kind: fwdForm.kind,
+        bindAddr: fwdForm.bindAddr || "127.0.0.1",
+        bindPort: Number(fwdForm.bindPort) || 0,
+      };
+      if (fwdForm.kind !== "dynamic") {
+        body.dstHost = fwdForm.dstHost;
+        body.dstPort = Number(fwdForm.dstPort) || 0;
+      }
+      const d = await postJson("/forward", body);
+      if (d && d.ok) {
+        setMsg({ kind: "ok", text: "转发已启动" });
+        await loadForwards(fwdFor);
+      } else {
+        setMsg({ kind: "err", text: (d && d.error) || "启动转发失败" });
+      }
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    } finally {
+      setFwdBusy(false);
+    }
+  }
+
+  async function stopForward(id) {
+    try {
+      await postJson("/forward/stop", { id });
+      if (fwdFor) await loadForwards(fwdFor);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    }
+  }
+
   async function createSession() {
     if (!form.host || !form.user) {
       setMsg({ kind: "err", text: "主机和用户名必填" });
@@ -574,6 +632,7 @@ function AixtermApp() {
       };
       if (form.authKind === "key") body.auth.keyPath = form.keyPath;
       else if (form.authKind === "password") body.password = form.password;
+      if (form.proxyJump) body.proxyJump = form.proxyJump;
       const d = await postJson("/sessions", body);
       if (d && d.ok) {
         setShowCreate(false);
@@ -677,6 +736,16 @@ function AixtermApp() {
                       </div>
                       <button
                         style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
+                        title="端口转发"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openForwards(s);
+                        }}
+                      >
+                        ⇄
+                      </button>
+                      <button
+                        style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
                         title="测试连接"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -765,6 +834,77 @@ function AixtermApp() {
       {/* right: sftp (ssh sessions only) */}
       {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} /> : null}
 
+      {/* port-forward panel */}
+      {fwdFor ? (
+        <div
+          onClick={() => setFwdFor(null)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 560, maxWidth: "94%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>端口转发</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={S.muted}>类型</span>
+                <select style={S.input} value={fwdForm.kind} onChange={(e) => setFwdForm((f) => ({ ...f, kind: e.target.value }))}>
+                  <option value="local">本地转发 (-L)</option>
+                  <option value="remote">远程转发 (-R)</option>
+                  <option value="dynamic">动态 SOCKS5 (-D)</option>
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={S.muted}>监听端口</span>
+                <input style={S.input} value={fwdForm.bindPort} onChange={(e) => setFwdForm((f) => ({ ...f, bindPort: e.target.value }))} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={S.muted}>监听地址</span>
+                <input style={S.input} value={fwdForm.bindAddr} onChange={(e) => setFwdForm((f) => ({ ...f, bindAddr: e.target.value }))} />
+              </label>
+              {fwdForm.kind !== "dynamic" ? (
+                <>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={S.muted}>目标主机</span>
+                    <input style={S.input} value={fwdForm.dstHost} onChange={(e) => setFwdForm((f) => ({ ...f, dstHost: e.target.value }))} placeholder="127.0.0.1" />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={S.muted}>目标端口</span>
+                    <input style={S.input} value={fwdForm.dstPort} onChange={(e) => setFwdForm((f) => ({ ...f, dstPort: e.target.value }))} />
+                  </label>
+                </>
+              ) : (
+                <div style={{ ...S.muted, gridColumn: "1 / span 2" }}>动态模式在本机提供 SOCKS5 代理，目标由客户端指定。</div>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button style={S.btnPrimary} onClick={createForward} disabled={fwdBusy}>{fwdBusy ? "启动中…" : "启动转发"}</button>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div style={{ ...S.muted, marginBottom: 6 }}>运行中的转发</div>
+              {forwards.length === 0 ? (
+                <div style={S.muted}>暂无</div>
+              ) : (
+                forwards.map((f) => (
+                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 6, fontSize: 12 }}>
+                    <span style={{ color: f.state === "running" ? C.ok : C.danger }}>●</span>
+                    <span style={{ flex: 1 }}>
+                      {f.kind} {f.bindAddr}:{f.bindPort}
+                      {f.kind !== "dynamic" ? ` → ${f.dstHost}:${f.dstPort}` : " (SOCKS5)"}
+                      {f.state !== "running" && f.error ? ` — ${f.error}` : ""}
+                    </span>
+                    <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={() => stopForward(f.id)}>停止</button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+              <button style={S.btn} onClick={() => setFwdFor(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* create modal */}
       {showCreate ? (
         <div
@@ -803,6 +943,17 @@ function AixtermApp() {
                   <option value="password">密码</option>
                   <option value="key">私钥文件</option>
                   <option value="agent">ssh-agent</option>
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                <span style={S.muted}>跳板机（可选，经已保存会话中转）</span>
+                <select style={S.input} value={form.proxyJump} onChange={(e) => patch("proxyJump", e.target.value)}>
+                  <option value="">直连</option>
+                  {sessions.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}（{x.user}@{x.host}:{x.port}）
+                    </option>
+                  ))}
                 </select>
               </label>
               {form.authKind === "password" ? (

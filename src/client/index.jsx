@@ -13,6 +13,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
 import xtermCss from "@xterm/xterm/css/xterm.css";
 
 const PREFIX = "/dsh-aixterm";
@@ -64,6 +65,30 @@ const XTERM_THEME = {
   brightMagenta: "#d2a8ff",
   brightCyan: "#56d4dd",
   brightWhite: "#f0f6fc",
+};
+
+const LIGHT_THEME = {
+  background: "#ffffff",
+  foreground: "#24292f",
+  cursor: "#0969da",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#b6d7ff",
+  black: "#24292f",
+  red: "#cf222e",
+  green: "#116329",
+  yellow: "#9a6700",
+  blue: "#0969da",
+  magenta: "#8250df",
+  cyan: "#1b7c83",
+  white: "#6e7781",
+  brightBlack: "#57606a",
+  brightRed: "#a40e26",
+  brightGreen: "#1a7f37",
+  brightYellow: "#7d4e00",
+  brightBlue: "#218bff",
+  brightMagenta: "#a475f9",
+  brightCyan: "#3192aa",
+  brightWhite: "#8c959f",
 };
 
 const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "", proxyJump: "" };
@@ -151,15 +176,30 @@ function parentPath(p) {
 
 /* ---------------------------------------------------------------- terminal */
 
-function TerminalPane({ terminalId, active, onCwd }) {
+function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
   const hostRef = useRef(null);
   const onCwdRef = useRef(onCwd);
+  const onInputRef = useRef(onInput);
+  const searchRef = useRef(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [menu, setMenu] = useState(null);
   const termRef = useRef(null);
   const fitRef = useRef(null);
 
   useEffect(() => {
     onCwdRef.current = onCwd;
   }, [onCwd]);
+
+  useEffect(() => {
+    onInputRef.current = onInput;
+  }, [onInput]);
+
+  useEffect(() => {
+    const hide = () => setMenu(null);
+    document.addEventListener("click", hide);
+    return () => document.removeEventListener("click", hide);
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -184,6 +224,22 @@ function TerminalPane({ terminalId, active, onCwd }) {
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;
+
+    try {
+      const search = new SearchAddon();
+      term.loadAddon(search);
+      searchRef.current = search;
+    } catch {
+      /* search addon unavailable */
+    }
+
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.ctrlKey && !e.shiftKey && String(e.key).toLowerCase() === "f") {
+        setFindOpen(true);
+        return false;
+      }
+      return true;
+    });
 
     // OSC 7 (file://host/path) is emitted by the shell after each prompt; use it
     // to follow the terminal directory in the SFTP panel.
@@ -223,7 +279,8 @@ function TerminalPane({ terminalId, active, onCwd }) {
     };
 
     const dataDisposable = term.onData((data) => {
-      postJson("/term/input", { terminalId, data }).catch(() => {});
+      if (onInputRef.current) onInputRef.current(data);
+      else postJson("/term/input", { terminalId, data }).catch(() => {});
     });
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       postJson("/term/resize", { terminalId, cols, rows }).catch(() => {});
@@ -275,6 +332,18 @@ function TerminalPane({ terminalId, active, onCwd }) {
   }, [terminalId]);
 
   useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    try {
+      term.options.fontSize = (prefs && prefs.fontSize) || 13;
+      term.options.theme = prefs && prefs.theme === "light" ? LIGHT_THEME : XTERM_THEME;
+      fitRef.current && fitRef.current.fit();
+    } catch {
+      /* options not ready */
+    }
+  }, [prefs && prefs.fontSize, prefs && prefs.theme]);
+
+  useEffect(() => {
     if (!active) return undefined;
     const t = setTimeout(() => {
       try {
@@ -287,17 +356,122 @@ function TerminalPane({ terminalId, active, onCwd }) {
     return () => clearTimeout(t);
   }, [active]);
 
+  function copySelection() {
+    try {
+      const sel = termRef.current && termRef.current.getSelection();
+      if (sel) navigator.clipboard && navigator.clipboard.writeText(sel).catch(() => {});
+    } catch {
+      /* clipboard denied */
+    }
+  }
+
+  async function pasteClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) postJson("/term/input", { terminalId, data: text }).catch(() => {});
+    } catch {
+      /* clipboard denied */
+    }
+  }
+
+  const menuItems = [
+    ["复制", copySelection],
+    ["粘贴", pasteClipboard],
+    ["全选", () => termRef.current && termRef.current.selectAll()],
+    ["清屏", () => termRef.current && termRef.current.clear()],
+    ["查找", () => setFindOpen(true)],
+  ];
+
   return (
-    <div
-      ref={hostRef}
-      style={{
-        display: active ? "block" : "none",
-        flex: 1,
-        minHeight: 0,
-        padding: "6px 8px",
-        overflow: "hidden",
-      }}
-    />
+    <div style={{ position: "relative", display: active ? "block" : "none", flex: 1, minHeight: 0 }}>
+      <div
+        ref={hostRef}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+        style={{ position: "absolute", inset: 0, padding: "6px 8px", overflow: "hidden" }}
+      />
+      {findOpen ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 16,
+            zIndex: 6,
+            display: "flex",
+            gap: 4,
+            alignItems: "center",
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 6,
+            padding: 6,
+            boxShadow: "0 8px 24px rgba(0,0,0,.45)",
+          }}
+        >
+          <input
+            autoFocus
+            value={findText}
+            onChange={(e) => {
+              setFindText(e.target.value);
+              try {
+                searchRef.current && searchRef.current.findNext(e.target.value, { incremental: true });
+              } catch {
+                /* no search */
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                try {
+                  if (e.shiftKey) searchRef.current && searchRef.current.findPrevious(findText);
+                  else searchRef.current && searchRef.current.findNext(findText);
+                } catch {
+                  /* no search */
+                }
+              }
+              if (e.key === "Escape") setFindOpen(false);
+            }}
+            placeholder="查找…"
+            style={{ ...S.input, width: 190 }}
+          />
+          <button style={{ ...S.btn, padding: "1px 7px" }} title="上一个" onClick={() => searchRef.current && searchRef.current.findPrevious(findText)}>↑</button>
+          <button style={{ ...S.btn, padding: "1px 7px" }} title="下一个" onClick={() => searchRef.current && searchRef.current.findNext(findText)}>↓</button>
+          <button style={{ ...S.btn, padding: "1px 7px" }} title="关闭" onClick={() => setFindOpen(false)}>✕</button>
+        </div>
+      ) : null}
+      {menu ? (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: menu.x,
+            top: menu.y,
+            zIndex: 60,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 6,
+            padding: 4,
+            minWidth: 130,
+            boxShadow: "0 10px 30px rgba(0,0,0,.55)",
+          }}
+        >
+          {menuItems.map(([label, fn]) => (
+            <div
+              key={label}
+              onClick={() => {
+                setMenu(null);
+                fn();
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              style={{ padding: "5px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4 }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -778,6 +952,16 @@ function AixtermApp() {
   const [fwdForm, setFwdForm] = useState({ kind: "local", bindAddr: "127.0.0.1", bindPort: "18422", dstHost: "", dstPort: "22" });
   const [fwdBusy, setFwdBusy] = useState(false);
   const [cwdByTerminal, setCwdByTerminal] = useState({});
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [prefs, setPrefs] = useState(() => {
+    try {
+      return { fontSize: 13, theme: "dark", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+    } catch {
+      return { fontSize: 13, theme: "dark" };
+    }
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [broadcast, setBroadcast] = useState(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -849,6 +1033,45 @@ function AixtermApp() {
     } catch (e) {
       setMsg({ kind: "err", text: String(e) });
     }
+  }
+
+  function updatePrefs(patchObj) {
+    const next = { ...prefs, ...patchObj };
+    setPrefs(next);
+    try {
+      localStorage.setItem("aixterm.prefs", JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  function handleInput(sourceId, data) {
+    const targets = broadcast ? tabs.map((t) => t.id) : [sourceId];
+    for (const id of targets) {
+      postJson("/term/input", { terminalId: id, data }).catch(() => {});
+    }
+  }
+
+  async function duplicateSession(id) {
+    try {
+      const d = await postJson("/sessions/duplicate", { id });
+      if (d && d.ok) {
+        setMsg({ kind: "ok", text: "已复制会话" });
+        await loadSessions();
+      } else {
+        setMsg({ kind: "err", text: (d && d.error) || "复制失败" });
+      }
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e) });
+    }
+  }
+
+  function exportLog(id, format) {
+    const a = document.createElement("a");
+    a.href = PREFIX + "/log/export?sessionId=" + encodeURIComponent(id) + "&format=" + (format || "html");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function testSession(id) {
@@ -954,9 +1177,14 @@ function AixtermApp() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  // Group sessions by their group field.
+  // Group sessions by their group field (filtered by the search box).
   const groups = [];
+  const ql = sessionQuery.trim().toLowerCase();
   for (const s of sessions) {
+    if (ql) {
+      const hay = `${s.name || ""} ${s.host || ""} ${s.user || ""} ${s.group || ""}`.toLowerCase();
+      if (!hay.includes(ql)) continue;
+    }
     const g = s.group || "默认";
     let bucket = groups.find((x) => x.name === g);
     if (!bucket) {
@@ -994,6 +1222,14 @@ function AixtermApp() {
           <button style={{ ...S.btn, width: "100%", textAlign: "left", padding: "7px 10px" }} onClick={() => openTerminal(null)} disabled={busy}>
             <span style={{ color: C.accent, marginRight: 6 }}>▸</span> 本地终端
           </button>
+        </div>
+        <div style={{ padding: "0 10px 8px" }}>
+          <input
+            style={S.input}
+            value={sessionQuery}
+            onChange={(e) => setSessionQuery(e.target.value)}
+            placeholder="搜索会话（名称/主机/用户/分组）"
+          />
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: "0 8px 8px" }}>
@@ -1035,6 +1271,26 @@ function AixtermApp() {
                           {s.user}@{s.host}:{s.port}
                         </div>
                       </div>
+                      <button
+                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
+                        title="复制会话"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          duplicateSession(s.id);
+                        }}
+                      >
+                        ⧉
+                      </button>
+                      <button
+                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
+                        title="导出命令日志"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          exportLog(s.id, "html");
+                        }}
+                      >
+                        ⤓
+                      </button>
                       <button
                         style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
                         title="端口转发"
@@ -1114,6 +1370,15 @@ function AixtermApp() {
               </div>
             ))
           )}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, padding: "0 10px", flex: "0 0 auto" }}>
+            <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, cursor: "pointer" }} title="把输入同时发送到所有已打开终端">
+              <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
+              同步输入
+            </label>
+            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="终端设置" onClick={() => setShowSettings(true)}>
+              ⚙ 设置
+            </button>
+          </div>
         </div>
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex" }}>
@@ -1132,6 +1397,8 @@ function AixtermApp() {
                 key={t.id}
                 terminalId={t.id}
                 active={t.id === activeId}
+                prefs={prefs}
+                onInput={(data) => handleInput(t.id, data)}
                 onCwd={(p) => setCwdByTerminal((prev) => (prev[t.id] === p ? prev : { ...prev, [t.id]: p }))}
               />
             ))
@@ -1155,6 +1422,35 @@ function AixtermApp() {
           <MonitorPanel sessionId={activeTab.sessionId} />
           <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
         </aside>
+      ) : null}
+
+      {/* settings modal */}
+      {showSettings ? (
+        <div
+          onClick={() => setShowSettings(false)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 420, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>终端设置</div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+              <span style={S.muted}>字号：{prefs.fontSize}px</span>
+              <input type="range" min="10" max="20" step="1" value={prefs.fontSize} onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={S.muted}>主题</span>
+              <select style={S.input} value={prefs.theme} onChange={(e) => updatePrefs({ theme: e.target.value })}>
+                <option value="dark">深色</option>
+                <option value="light">浅色</option>
+              </select>
+            </label>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button style={S.btnPrimary} onClick={() => setShowSettings(false)}>完成</button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* port-forward panel */}

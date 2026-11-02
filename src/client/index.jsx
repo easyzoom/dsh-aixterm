@@ -151,10 +151,15 @@ function parentPath(p) {
 
 /* ---------------------------------------------------------------- terminal */
 
-function TerminalPane({ terminalId, active }) {
+function TerminalPane({ terminalId, active, onCwd }) {
   const hostRef = useRef(null);
+  const onCwdRef = useRef(onCwd);
   const termRef = useRef(null);
   const fitRef = useRef(null);
+
+  useEffect(() => {
+    onCwdRef.current = onCwd;
+  }, [onCwd]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -179,6 +184,25 @@ function TerminalPane({ terminalId, active }) {
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;
+
+    // OSC 7 (file://host/path) is emitted by the shell after each prompt; use it
+    // to follow the terminal directory in the SFTP panel.
+    let oscDisposable = null;
+    try {
+      oscDisposable = term.parser.registerOscHandler(7, (data) => {
+        try {
+          const text = String(data || "");
+          const scheme = text.indexOf("//");
+          const slash = scheme >= 0 ? text.indexOf("/", scheme + 2) : -1;
+          if (slash >= 0 && onCwdRef.current) onCwdRef.current(decodeURIComponent(text.slice(slash)));
+        } catch {
+          /* malformed OSC 7 */
+        }
+        return true;
+      });
+    } catch {
+      /* parser handler unsupported */
+    }
 
     const doFit = () => {
       try {
@@ -236,6 +260,11 @@ function TerminalPane({ terminalId, active }) {
         /* ignore */
       }
       try {
+        oscDisposable && oscDisposable.dispose();
+      } catch {
+        /* ignore */
+      }
+      try {
         term.dispose();
       } catch {
         /* ignore */
@@ -274,12 +303,115 @@ function TerminalPane({ terminalId, active }) {
 
 /* ------------------------------------------------------------------- sftp */
 
-function SftpPanel({ sessionId }) {
+function MonitorPanel({ sessionId }) {
+  const [m, setM] = useState(null);
+  const [err, setErr] = useState(null);
+  const prevNet = useRef(null);
+
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch(PREFIX + "/monitor?sessionId=" + encodeURIComponent(sessionId));
+        const d = await r.json();
+        if (!alive) return;
+        if (d && d.ok) {
+          setM(d.monitor);
+          setErr(null);
+        } else {
+          setErr((d && d.error) || "读取失败");
+        }
+      } catch (e) {
+        if (alive) setErr(String(e));
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [sessionId]);
+
+  const bar = (pct, color) => (
+    <div style={{ height: 4, background: C.border, borderRadius: 2, overflow: "hidden", marginTop: 3 }}>
+      <div style={{ width: Math.max(0, Math.min(100, pct || 0)) + "%", height: "100%", background: color }} />
+    </div>
+  );
+  const pctText = (v) => (v === null || v === undefined ? "—" : Math.round(v) + "%");
+  const gb = (kb) => (kb ? (kb / 1024 / 1024).toFixed(1) + "G" : "—");
+
+  // Network rate from consecutive samples.
+  let rxRate = null;
+  let txRate = null;
+  const nic = m && m.net && m.net[0];
+  if (nic) {
+    const now = Date.now();
+    const prev = prevNet.current;
+    if (prev && prev.iface === nic.iface && now > prev.ts) {
+      const dt = (now - prev.ts) / 1000;
+      rxRate = Math.max(0, (nic.rxBytes - prev.rxBytes) / dt);
+      txRate = Math.max(0, (nic.txBytes - prev.txBytes) / dt);
+    }
+    prevNet.current = { iface: nic.iface, rxBytes: nic.rxBytes, txBytes: nic.txBytes, ts: now };
+  }
+  const fmtRate = (v) => {
+    if (v === null) return "—";
+    if (v > 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + "M/s";
+    if (v > 1024) return (v / 1024).toFixed(1) + "K/s";
+    return Math.round(v) + "B/s";
+  };
+
+  const cpu = m && m.cpu ? m.cpu.usage : null;
+  const mem = m && m.mem ? m.mem.percent : null;
+  const disk = m && m.disk ? m.disk.usePercent : null;
+
+  return (
+    <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.border}`, flex: "0 0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.dim, marginBottom: 5 }}>
+        <span>资源监控</span>
+        <span>{err ? err : m ? "5s 刷新" : "读取中…"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, fontSize: 11.5 }}>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={S.muted}>CPU</span>
+            <span>{pctText(cpu)}</span>
+          </div>
+          {bar(cpu, C.accent)}
+        </div>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={S.muted}>内存</span>
+            <span>{pctText(mem)}</span>
+          </div>
+          {bar(mem, C.ok)}
+        </div>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={S.muted}>磁盘</span>
+            <span>{pctText(disk)}</span>
+          </div>
+          {bar(disk, disk !== null && disk > 90 ? C.danger : "#d0a24a")}
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.dim, marginTop: 6 }}>
+        <span>负载 {m && m.load ? `${m.load.one.toFixed(2)} ${m.load.five.toFixed(2)} ${m.load.fifteen.toFixed(2)}` : "—"}</span>
+        <span>↓{fmtRate(rxRate)} ↑{fmtRate(txRate)}</span>
+      </div>
+    </div>
+  );
+}
+
+function SftpPanel({ sessionId, followPath }) {
   const [path, setPath] = useState(".");
   const [entries, setEntries] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [drag, setDrag] = useState(false);
+  const [edit, setEdit] = useState(null); // { path, name, text } while editing a remote text file
+  const [follow, setFollow] = useState(true);
   const fileRef = useRef(null);
 
   const list = useCallback(
@@ -309,6 +441,20 @@ function SftpPanel({ sessionId }) {
     setEntries(null);
     list(".");
   }, [sessionId, list]);
+
+  // Follow the terminal's cwd (OSC 7) when the toggle is on.
+  useEffect(() => {
+    if (!follow || !followPath) return;
+    if (followPath === path) return;
+    setPath(followPath);
+    list(followPath);
+  }, [follow, followPath, path, list]);
+
+  async function sftpOp(op, extra) {
+    const d = await postJson("/sftp", { sessionId, op, ...extra });
+    if (!d || !d.ok) throw new Error((d && d.error) || op + " 失败");
+    return d;
+  }
 
   async function uploadFiles(files) {
     if (!sessionId || !files || !files.length) return;
@@ -356,6 +502,100 @@ function SftpPanel({ sessionId }) {
     list(next);
   }
 
+  async function newDir() {
+    const name = window.prompt("新建目录名");
+    if (!name) return;
+    try {
+      setBusy(true);
+      await sftpOp("mkdir", { path: joinPath(path, name) });
+      setMsg({ kind: "ok", text: "已创建 " + name });
+      await list(path);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameEntry(entry) {
+    const name = window.prompt("重命名为", entry.name);
+    if (!name || name === entry.name) return;
+    try {
+      setBusy(true);
+      await sftpOp("rename", { from: joinPath(path, entry.name), to: joinPath(path, name) });
+      setMsg({ kind: "ok", text: "已重命名" });
+      await list(path);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteEntry(entry) {
+    if (!window.confirm("删除 " + entry.name + "？")) return;
+    try {
+      setBusy(true);
+      await sftpOp("delete", { path: joinPath(path, entry.name) });
+      setMsg({ kind: "ok", text: "已删除 " + entry.name });
+      await list(path);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chmodEntry(entry) {
+    const mode = window.prompt("权限（八进制，如 755）", "755");
+    if (!mode) return;
+    try {
+      setBusy(true);
+      await sftpOp("chmod", { path: joinPath(path, entry.name), mode: mode.trim() });
+      setMsg({ kind: "ok", text: "权限已设为 " + mode });
+      await list(path);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openEditor(entry) {
+    if (entry.isDirectory) return;
+    const full = joinPath(path, entry.name);
+    try {
+      setBusy(true);
+      const r = await fetch(PREFIX + "/sftp/download?sessionId=" + encodeURIComponent(sessionId) + "&path=" + encodeURIComponent(full));
+      if (!r.ok) throw new Error("读取失败");
+      const buf = new Uint8Array(await r.arrayBuffer());
+      if (buf.length > 1024 * 1024) throw new Error("文件超过 1 MB，暂不支持在线编辑");
+      const text = new TextDecoder("utf-8").decode(buf);
+      if (text.includes("\uFFFD")) throw new Error("二进制文件，无法在线编辑");
+      setEdit({ path: full, name: entry.name, text });
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEditor() {
+    if (!edit) return;
+    try {
+      setBusy(true);
+      const d = await postJson("/sftp/upload", { sessionId, path: edit.path, data: bytesToB64(new TextEncoder().encode(edit.text)) });
+      if (!d || !d.ok) throw new Error((d && d.error) || "保存失败");
+      setMsg({ kind: "ok", text: "已保存 " + edit.name });
+      setEdit(null);
+      await list(path);
+    } catch (e) {
+      setMsg({ kind: "err", text: String(e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const msgColor = msg?.kind === "err" ? C.danger : msg?.kind === "ok" ? C.ok : C.dim;
 
   return (
@@ -371,9 +611,9 @@ function SftpPanel({ sessionId }) {
         uploadFiles(e.dataTransfer.files);
       }}
       style={{
-        width: 320,
-        flex: "0 0 320px",
-        borderLeft: `1px solid ${C.border}`,
+        width: "100%",
+        flex: "1 1 auto",
+        borderTop: `1px solid ${C.border}`,
         background: C.panel,
         display: "flex",
         flexDirection: "column",
@@ -387,7 +627,12 @@ function SftpPanel({ sessionId }) {
         <div style={{ display: "flex", gap: 6 }}>
           <button style={S.btn} title="上级目录" onClick={up} disabled={busy}>↑</button>
           <button style={S.btn} title="刷新" onClick={() => list(path)} disabled={busy}>⟳</button>
+          <button style={S.btn} title="新建目录" onClick={newDir} disabled={busy}>＋目录</button>
           <button style={S.btn} title="上传文件" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>上传</button>
+          <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" }} title="SFTP 面板跟随终端当前目录">
+            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+            跟随
+          </label>
         </div>
       </div>
 
@@ -413,10 +658,11 @@ function SftpPanel({ sessionId }) {
             <div
               key={it.name}
               onClick={() => (it.isDirectory ? enter(it) : null)}
+              onDoubleClick={() => openEditor(it)}
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: 5,
                 padding: "5px 6px",
                 borderRadius: 5,
                 cursor: it.isDirectory ? "pointer" : "default",
@@ -432,7 +678,7 @@ function SftpPanel({ sessionId }) {
               {it.isDirectory ? null : <span style={S.muted}>{fmtSize(it.size)}</span>}
               {it.isDirectory ? null : (
                 <button
-                  style={{ ...S.btn, padding: "1px 7px" }}
+                  style={{ ...S.btn, padding: "1px 5px" }}
                   title="下载"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -442,13 +688,43 @@ function SftpPanel({ sessionId }) {
                   ↓
                 </button>
               )}
+              <button
+                style={{ ...S.btn, padding: "1px 5px" }}
+                title="重命名"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  renameEntry(it);
+                }}
+              >
+                ✎
+              </button>
+              <button
+                style={{ ...S.btn, padding: "1px 5px" }}
+                title="权限"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  chmodEntry(it);
+                }}
+              >
+                ⚙
+              </button>
+              <button
+                style={{ ...S.btn, padding: "1px 5px", color: C.danger }}
+                title="删除"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteEntry(it);
+                }}
+              >
+                ✕
+              </button>
             </div>
           ))
         )}
       </div>
 
       {msg ? <div style={{ padding: "6px 12px", fontSize: 12, color: msgColor, borderTop: `1px solid ${C.border}` }}>{msg.text}</div> : null}
-      <div style={{ padding: "8px 12px", fontSize: 11, color: C.dim, borderTop: `1px solid ${C.border}` }}>拖入文件即可上传</div>
+      <div style={{ padding: "8px 12px", fontSize: 11, color: C.dim, borderTop: `1px solid ${C.border}` }}>拖入文件即可上传 · 双击文件在线编辑</div>
       <input
         ref={fileRef}
         type="file"
@@ -459,6 +735,30 @@ function SftpPanel({ sessionId }) {
           e.target.value = "";
         }}
       />
+
+      {edit ? (
+        <div
+          onClick={() => setEdit(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 30, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 760, maxWidth: "94%", height: "72vh", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>编辑 {edit.path}</div>
+            <textarea
+              value={edit.text}
+              onChange={(e) => setEdit({ ...edit, text: e.target.value })}
+              spellCheck={false}
+              style={{ flex: 1, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: 10, fontFamily: "ui-monospace, monospace", fontSize: 12.5, resize: "none" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+              <button style={S.btn} onClick={() => setEdit(null)}>取消</button>
+              <button style={S.btnPrimary} onClick={saveEditor} disabled={busy}>保存</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }
@@ -477,6 +777,7 @@ function AixtermApp() {
   const [forwards, setForwards] = useState([]);
   const [fwdForm, setFwdForm] = useState({ kind: "local", bindAddr: "127.0.0.1", bindPort: "18422", dstHost: "", dstPort: "22" });
   const [fwdBusy, setFwdBusy] = useState(false);
+  const [cwdByTerminal, setCwdByTerminal] = useState({});
 
   const loadSessions = useCallback(async () => {
     try {
@@ -826,13 +1127,35 @@ function AixtermApp() {
               </div>
             </div>
           ) : (
-            tabs.map((t) => <TerminalPane key={t.id} terminalId={t.id} active={t.id === activeId} />)
+            tabs.map((t) => (
+              <TerminalPane
+                key={t.id}
+                terminalId={t.id}
+                active={t.id === activeId}
+                onCwd={(p) => setCwdByTerminal((prev) => (prev[t.id] === p ? prev : { ...prev, [t.id]: p }))}
+              />
+            ))
           )}
         </div>
       </main>
 
-      {/* right: sftp (ssh sessions only) */}
-      {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} /> : null}
+      {/* right: monitor + sftp (ssh sessions only) */}
+      {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? (
+        <aside
+          style={{
+            width: 340,
+            flex: "0 0 340px",
+            borderLeft: `1px solid ${C.border}`,
+            background: C.panel,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }}
+        >
+          <MonitorPanel sessionId={activeTab.sessionId} />
+          <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
+        </aside>
+      ) : null}
 
       {/* port-forward panel */}
       {fwdFor ? (

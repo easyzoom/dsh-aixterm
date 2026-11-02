@@ -1682,6 +1682,7 @@ function AixtermApp() {
     }
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("display");
   const [broadcast, setBroadcast] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [keys, setKeys] = useState([]);
@@ -3156,179 +3157,236 @@ function AixtermApp() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 420, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+            style={{
+              width: 560,
+              maxWidth: "94%",
+              maxHeight: "80vh",
+              background: C.panel,
+              border: `1px solid ${C.border}`,
+              borderRadius: 10,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>{tr("终端设置", "Terminal settings")}</div>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-              <span style={S.muted}>{tr("界面语言", "Language")}</span>
-              <select style={S.input} value={prefs.lang || "zh"} onChange={(e) => updatePrefs({ lang: e.target.value })}>
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-              <span style={S.muted}>{tr("字号", "Font size")}：{prefs.fontSize}px</span>
-              <input type="range" min="10" max="20" step="1" value={prefs.fontSize} onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })} />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={S.muted}>{tr("配色主题", "Colour theme")}</span>
-              <select style={S.input} value={prefs.theme} onChange={(e) => updatePrefs({ theme: e.target.value })}>
-                <option value="dark">{tr("深色（GitHub Dark）", "Dark (GitHub)")}</option>
-                <option value="light">{tr("浅色", "Light")}</option>
-                <option value="solarized">Solarized Dark</option>
-                <option value="dracula">Dracula</option>
-                <option value="contrast">{tr("高对比（黑底绿字）", "High contrast")}</option>
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <span style={S.muted}>{tr("字体", "Font family")}</span>
-              <select style={S.input} value={prefs.fontFamily || ""} onChange={(e) => updatePrefs({ fontFamily: e.target.value })}>
-                {FONT_CHOICES.map(([value, label]) => (
-                  <option key={label} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <span style={S.muted}>{tr("行高", "Line height")}：{Number(prefs.lineHeight) || 1.15}</span>
-              <input
-                type="range"
-                min="1"
-                max="1.6"
-                step="0.05"
-                value={Number(prefs.lineHeight) || 1.15}
-                onChange={(e) => updatePrefs({ lineHeight: Number(e.target.value) })}
-              />
-            </label>
-            <div style={{ marginTop: 12 }}>
-              <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关键字高亮", "Keyword highlighting")}</div>
-              {(prefs.highlights || []).length === 0 ? (
-                <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("暂无规则（例如把 ERROR 标红、WARN 标黄）", "No rules (e.g. colour ERROR red, WARN yellow)")}</div>
-              ) : (
-                (prefs.highlights || []).map((rule, i) => (
-                  <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>{tr("终端设置", "Terminal settings")}</span>
+              <button style={{ ...S.btn, padding: "1px 8px" }} onClick={() => setShowSettings(false)}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 4, padding: "8px 12px 0", borderBottom: `1px solid ${C.border}`, overflowX: "auto", flex: "0 0 auto" }}>
+              {[
+                ["display", "显示", "Display"],
+                ["highlight", "高亮", "Highlighting"],
+                ["security", "安全", "Security"],
+                ["storage", "存储", "Storage"],
+                ["about", "关于", "About"],
+              ].map(([key, zh, en]) => (
+                <button
+                  key={key}
+                  onClick={() => setSettingsTab(key)}
+                  style={{
+                    ...(settingsTab === key ? S.btnPrimary : S.btn),
+                    borderBottomLeftRadius: 0,
+                    borderBottomRightRadius: 0,
+                    padding: "4px 12px",
+                    fontSize: 11.5,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {tr(zh, en)}
+                </button>
+              ))}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
+              {settingsTab === "display" ? (
+                <>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                    <span style={S.muted}>{tr("界面语言", "Language")}</span>
+                    <select style={S.input} value={prefs.lang || "zh"} onChange={(e) => updatePrefs({ lang: e.target.value })}>
+                      <option value="zh">中文</option>
+                      <option value="en">English</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                    <span style={S.muted}>{tr("字号", "Font size")}：{prefs.fontSize}px</span>
+                    <input type="range" min="10" max="20" step="1" value={prefs.fontSize} onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={S.muted}>{tr("配色主题", "Colour theme")}</span>
+                    <select style={S.input} value={prefs.theme} onChange={(e) => updatePrefs({ theme: e.target.value })}>
+                      <option value="dark">{tr("深色（GitHub Dark）", "Dark (GitHub)")}</option>
+                      <option value="light">{tr("浅色", "Light")}</option>
+                      <option value="solarized">Solarized Dark</option>
+                      <option value="dracula">Dracula</option>
+                      <option value="contrast">{tr("高对比（黑底绿字）", "High contrast")}</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <span style={S.muted}>{tr("字体", "Font family")}</span>
+                    <select style={S.input} value={prefs.fontFamily || ""} onChange={(e) => updatePrefs({ fontFamily: e.target.value })}>
+                      {FONT_CHOICES.map(([value, label]) => (
+                        <option key={label} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <span style={S.muted}>{tr("行高", "Line height")}：{Number(prefs.lineHeight) || 1.15}</span>
                     <input
-                      style={{ ...S.input, flex: 1 }}
-                      value={rule.pattern || ""}
-                      onChange={(e) => updateHighlight(i, { pattern: e.target.value })}
-                      placeholder="关键字（区分大小写无关）"
+                      type="range"
+                      min="1"
+                      max="1.6"
+                      step="0.05"
+                      value={Number(prefs.lineHeight) || 1.15}
+                      onChange={(e) => updatePrefs({ lineHeight: Number(e.target.value) })}
                     />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <span style={S.muted}>{tr("行号 / 时间戳边栏", "Line-number / timestamp gutter")}</span>
+                    <select style={S.input} value={prefs.gutter || "off"} onChange={(e) => updatePrefs({ gutter: e.target.value })}>
+                      <option value="off">{tr("关闭", "Off")}</option>
+                      <option value="line">{tr("行号", "Line numbers")}</option>
+                      <option value="time">{tr("时间戳", "Timestamps")}</option>
+                      <option value="both">{tr("行号 + 时间戳", "Both")}</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 10 }}>
                     <input
-                      type="color"
-                      value={HEX_RE.test(rule.color || "") ? rule.color : "#ff5555"}
-                      onChange={(e) => updateHighlight(i, { color: e.target.value })}
-                      style={{ width: 44, height: 28, background: "transparent", border: "none", padding: 0 }}
+                      type="checkbox"
+                      checked={prefs.suggestions !== false}
+                      onChange={(e) => updatePrefs({ suggestions: e.target.checked })}
                     />
-                    <button style={{ ...S.btn, padding: "1px 8px" }} onClick={() => removeHighlight(i)}>✕</button>
+                    <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
+                  </label>
+                </>
+              ) : null}
+
+              {settingsTab === "highlight" ? (
+                <div>
+                  <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关键字高亮", "Keyword highlighting")}</div>
+                  {(prefs.highlights || []).length === 0 ? (
+                    <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("暂无规则（例如把 ERROR 标红、WARN 标黄）", "No rules (e.g. colour ERROR red, WARN yellow)")}</div>
+                  ) : (
+                    (prefs.highlights || []).map((rule, i) => (
+                      <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                        <input
+                          style={{ ...S.input, flex: 1 }}
+                          value={rule.pattern || ""}
+                          onChange={(e) => updateHighlight(i, { pattern: e.target.value })}
+                          placeholder={tr("关键字（不区分大小写）", "Keyword (case-insensitive)")}
+                        />
+                        <input
+                          type="color"
+                          value={HEX_RE.test(rule.color || "") ? rule.color : "#ff5555"}
+                          onChange={(e) => updateHighlight(i, { color: e.target.value })}
+                          style={{ width: 44, height: 28, background: "transparent", border: "none", padding: 0 }}
+                        />
+                        <button style={{ ...S.btn, padding: "1px 8px" }} onClick={() => removeHighlight(i)}>✕</button>
+                      </div>
+                    ))
+                  )}
+                  <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>{tr("＋ 添加高亮规则", "+ Add rule")}</button>
+                </div>
+              ) : null}
+
+              {settingsTab === "security" ? (
+                <div style={{ fontSize: 12 }}>
+                  {lockInfo.hasMaster ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <span style={{ color: C.ok }}>{tr("主密码已设置", "Master password set")}</span>
+                      <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={lockNow}>{tr("立即锁定", "Lock now")}</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                      <input
+                        style={{ ...S.input, flex: 1 }}
+                        type="password"
+                        value={newMaster}
+                        onChange={(e) => setNewMaster(e.target.value)}
+                        placeholder={tr("设置主密码（4 位以上）", "Master password (4+ chars)")}
+                      />
+                      <button style={S.btn} onClick={setupMaster}>{tr("设置", "Set")}</button>
+                    </div>
+                  )}
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={S.muted}>{tr("空闲自动锁定（分钟，0 关闭）", "Idle auto-lock (minutes, 0 = off)")}</span>
+                    <input
+                      style={{ ...S.input, width: 80 }}
+                      type="number"
+                      min="0"
+                      value={lockInfo.idleMinutes}
+                      onChange={(e) => setIdleMinutes(e.target.value)}
+                    />
+                  </label>
+                  <div style={{ ...S.muted, marginTop: 10, fontSize: 11 }}>
+                    {tr("锁定后界面需要主密码解锁；忘记密码可删除 ~/.dsh/aixterm/lock.json 重置。", "While locked the panel requires the master password; delete ~/.dsh/aixterm/lock.json to reset.")}
                   </div>
-                ))
-              )}
-              <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>{tr("＋ 添加高亮规则", "+ Add rule")}</button>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 10 }}>
-              <input
-                type="checkbox"
-                checked={prefs.suggestions !== false}
-                onChange={(e) => updatePrefs({ suggestions: e.target.checked })}
-              />
-              <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              <span style={S.muted}>{tr("行号 / 时间戳边栏", "Line-number / timestamp gutter")}</span>
-              <select style={S.input} value={prefs.gutter || "off"} onChange={(e) => updatePrefs({ gutter: e.target.value })}>
-                <option value="off">{tr("关闭", "Off")}</option>
-                <option value="line">{tr("行号", "Line numbers")}</option>
-                <option value="time">{tr("时间戳", "Timestamps")}</option>
-                <option value="both">{tr("行号 + 时间戳", "Both")}</option>
-              </select>
-            </label>
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
-              <div style={{ ...S.muted, marginBottom: 6 }}>{tr("安全锁定", "Lock screen")}</div>
-              {lockInfo.hasMaster ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ color: C.ok }}>{tr("主密码已设置", "Master password set")}</span>
-                  <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={lockNow}>{tr("立即锁定", "Lock now")}</button>
+                  {lockMsg ? <div style={{ color: C.danger, marginTop: 6 }}>{lockMsg}</div> : null}
                 </div>
-              ) : (
-                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                  <input
-                    style={{ ...S.input, flex: 1 }}
-                    type="password"
-                    value={newMaster}
-                    onChange={(e) => setNewMaster(e.target.value)}
-                    placeholder={tr("设置主密码（4 位以上）", "Master password (4+ chars)")}
-                  />
-                  <button style={S.btn} onClick={setupMaster}>{tr("设置", "Set")}</button>
+              ) : null}
+
+              {settingsTab === "storage" ? (
+                <div style={{ fontSize: 12 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(termSettings.saveScrollback)}
+                      onChange={(e) => setTermSettings((prev) => ({ ...prev, saveScrollback: e.target.checked }))}
+                    />
+                    <span>{tr("终端输出保存到本地", "Save terminal output locally")}</span>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                    <span style={S.muted}>{tr("保存目录（绝对路径；留空使用默认目录）", "Directory (absolute; empty = default)")}</span>
+                    <input
+                      style={S.input}
+                      value={termSettings.scrollbackDir || ""}
+                      disabled={!termSettings.saveScrollback}
+                      onChange={(e) => setTermSettings((prev) => ({ ...prev, scrollbackDir: e.target.value }))}
+                      placeholder={tr("例如 /home/you/aixterm-logs", "e.g. /home/you/aixterm-logs")}
+                    />
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <span style={S.muted}>{tr("内存循环 buffer 行数", "In-memory buffer lines")}</span>
+                    <input
+                      style={{ ...S.input, width: 110 }}
+                      type="number"
+                      min="100"
+                      max="100000"
+                      value={termSettings.bufferLines}
+                      onChange={(e) => setTermSettings((prev) => ({ ...prev, bufferLines: e.target.value }))}
+                    />
+                  </label>
+                  <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
+                    {tr("关闭本地保存时仅保留内存循环 buffer（超出按行覆盖）。修改保存后对已打开终端立即生效。", "When saving is off only the in-memory buffer is kept (old lines rolled over). Saved changes apply to open terminals immediately.")}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <button style={S.btn} onClick={saveTermSettings}>{tr("保存设置", "Save")}</button>
+                    {termSettingsMsg ? (
+                      <span style={{ color: termSettingsMsg.kind === "err" ? C.danger : C.ok }}>{termSettingsMsg.text}</span>
+                    ) : null}
+                  </div>
                 </div>
-              )}
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={S.muted}>{tr("空闲自动锁定（分钟，0 关闭）", "Idle auto-lock (minutes, 0 = off)")}</span>
-                <input
-                  style={{ ...S.input, width: 80 }}
-                  type="number"
-                  min="0"
-                  value={lockInfo.idleMinutes}
-                  onChange={(e) => setIdleMinutes(e.target.value)}
-                />
-              </label>
-              {lockMsg ? <div style={{ color: C.danger, marginTop: 6 }}>{lockMsg}</div> : null}
+              ) : null}
+
+              {settingsTab === "about" ? (
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span>dsh-aixterm</span>
+                    <span style={S.muted}>{termSettings.version ? `v${termSettings.version}` : ""}</span>
+                  </div>
+                  <a
+                    href={termSettings.repo || "https://github.com/easyzoom/dsh-aixterm"}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: C.accent, wordBreak: "break-all" }}
+                  >
+                    github.com/easyzoom/dsh-aixterm
+                  </a>
+                  <div style={{ ...S.muted, marginTop: 4 }}>MIT License</div>
+                </div>
+              ) : null}
             </div>
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(termSettings.saveScrollback)}
-                  onChange={(e) => setTermSettings((prev) => ({ ...prev, saveScrollback: e.target.checked }))}
-                />
-                <span>{tr("终端输出保存到本地", "Save terminal output locally")}</span>
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                <span style={S.muted}>{tr("保存目录（绝对路径；留空使用默认目录）", "Directory (absolute; empty = default)")}</span>
-                <input
-                  style={S.input}
-                  value={termSettings.scrollbackDir || ""}
-                  disabled={!termSettings.saveScrollback}
-                  onChange={(e) => setTermSettings((prev) => ({ ...prev, scrollbackDir: e.target.value }))}
-                  placeholder={tr("例如 /home/you/aixterm-logs", "e.g. /home/you/aixterm-logs")}
-                />
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                <span style={S.muted}>{tr("内存循环 buffer 行数", "In-memory buffer lines")}</span>
-                <input
-                  style={{ ...S.input, width: 110 }}
-                  type="number"
-                  min="100"
-                  max="100000"
-                  value={termSettings.bufferLines}
-                  onChange={(e) => setTermSettings((prev) => ({ ...prev, bufferLines: e.target.value }))}
-                />
-              </label>
-              <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
-                {tr("关闭本地保存时仅保留内存循环 buffer（超出按行覆盖）。修改保存后对已打开终端立即生效。", "When saving is off only the in-memory buffer is kept (old lines rolled over). Saved changes apply to open terminals immediately.")}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                <button style={S.btn} onClick={saveTermSettings}>{tr("保存设置", "Save")}</button>
-                {termSettingsMsg ? (
-                  <span style={{ color: termSettingsMsg.kind === "err" ? C.danger : C.ok }}>{termSettingsMsg.text}</span>
-                ) : null}
-              </div>
-            </div>
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
-              <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关于", "About")}</div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>dsh-aixterm</span>
-                <span style={S.muted}>{termSettings.version ? `v${termSettings.version}` : ""}</span>
-              </div>
-              <a
-                href={termSettings.repo || "https://github.com/easyzoom/dsh-aixterm"}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: C.accent, wordBreak: "break-all" }}
-              >
-                github.com/easyzoom/dsh-aixterm
-              </a>
-              <div style={{ ...S.muted, marginTop: 2 }}>MIT License</div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 18px", borderTop: `1px solid ${C.border}`, flex: "0 0 auto" }}>
               <button style={S.btnPrimary} onClick={() => setShowSettings(false)}>{tr("完成", "Done")}</button>
             </div>
           </div>

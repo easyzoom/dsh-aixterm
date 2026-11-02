@@ -28,6 +28,8 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Auto-reconnect** — terminals reconnect with exponential backoff after a drop.
 - **Danger-command approval** — agent-initiated `aixterm_run` / `aixterm_term_send` calls matching a configurable pattern list wait for the human's approval, and fail closed when no approval surface exists.
 - **Credential references** — a session may name a dsh credential-service key (`credentialEnv`) instead of storing a password.
+- **Session import/export** — export JSON (round-trip) or MobaXterm `.mxtsessions`; import Xshell `.xsh`, MobaXterm and this plugin's JSON. Secrets are excluded and jump hosts are kept by name.
+- **Managed SSH keys** — generate ed25519 or import existing private keys; sessions reference them by name. Keys live under `<dataDir>/keys` with mode 600.
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install

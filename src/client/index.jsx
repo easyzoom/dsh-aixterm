@@ -91,7 +91,7 @@ const LIGHT_THEME = {
   brightWhite: "#8c959f",
 };
 
-const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", group: "", proxyJump: "", credentialEnv: "" };
+const EMPTY_FORM = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", keyId: "", group: "", proxyJump: "", credentialEnv: "" };
 
 const S = {
   btn: {
@@ -962,6 +962,14 @@ function AixtermApp() {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [broadcast, setBroadcast] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [keys, setKeys] = useState([]);
+  const [keyForm, setKeyForm] = useState({ name: "", privateKey: "" });
+  const [keyMsg, setKeyMsg] = useState(null);
+  const [generatedPub, setGeneratedPub] = useState("");
+  const [showIO, setShowIO] = useState(false);
+  const [ioMsg, setIoMsg] = useState(null);
+  const ioFileRef = useRef(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -976,6 +984,20 @@ function AixtermApp() {
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  const loadKeys = useCallback(async () => {
+    try {
+      const r = await fetch(PREFIX + "/keys");
+      const d = await r.json();
+      if (d && d.ok) setKeys(d.keys || []);
+    } catch (e) {
+      setKeyMsg({ kind: "err", text: String(e) });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadKeys();
+  }, [loadKeys]);
 
   const activeTab = tabs.find((t) => t.id === activeId) || null;
 
@@ -1049,6 +1071,85 @@ function AixtermApp() {
     const targets = broadcast ? tabs.map((t) => t.id) : [sourceId];
     for (const id of targets) {
       postJson("/term/input", { terminalId: id, data }).catch(() => {});
+    }
+  }
+
+  function openKeys() {
+    setShowKeys(true);
+    setKeyMsg(null);
+    setGeneratedPub("");
+    setKeyForm({ name: "", privateKey: "" });
+    loadKeys();
+  }
+
+  async function keyOp(op, extra) {
+    const d = await postJson("/keys", { op, ...extra });
+    if (!d || !d.ok) throw new Error((d && d.error) || op + " 失败");
+    return d;
+  }
+
+  async function makeKey() {
+    if (!keyForm.name) {
+      setKeyMsg({ kind: "err", text: "请填写密钥名称" });
+      return;
+    }
+    try {
+      const d = await keyOp("generate", { name: keyForm.name });
+      setGeneratedPub(d.key.publicKey || "");
+      setKeyMsg({ kind: "ok", text: "已生成密钥，公钥见下方（复制到远端 ~/.ssh/authorized_keys）" });
+      setKeyForm((f) => ({ ...f, name: "" }));
+      await loadKeys();
+    } catch (e) {
+      setKeyMsg({ kind: "err", text: String(e.message || e) });
+    }
+  }
+
+  async function importKeyMaterial() {
+    if (!keyForm.name || !keyForm.privateKey.trim()) {
+      setKeyMsg({ kind: "err", text: "请填写名称并粘贴私钥" });
+      return;
+    }
+    try {
+      await keyOp("import", { name: keyForm.name, privateKey: keyForm.privateKey });
+      setKeyMsg({ kind: "ok", text: "已导入密钥" });
+      setKeyForm({ name: "", privateKey: "" });
+      await loadKeys();
+    } catch (e) {
+      setKeyMsg({ kind: "err", text: String(e.message || e) });
+    }
+  }
+
+  async function removeKey(name) {
+    if (!window.confirm("删除密钥 " + name + "？")) return;
+    try {
+      await keyOp("delete", { name });
+      await loadKeys();
+      setKeyMsg({ kind: "ok", text: "已删除 " + name });
+    } catch (e) {
+      setKeyMsg({ kind: "err", text: String(e.message || e) });
+    }
+  }
+
+  function exportSessions(format) {
+    const a = document.createElement("a");
+    a.href = PREFIX + "/export?format=" + format;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function importSessions(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      const format = ext === "xsh" ? "xsh" : ext === "mxtsessions" ? "moba" : "json";
+      const d = await postJson("/import", { format, data: text });
+      if (!d || !d.ok) throw new Error((d && d.error) || "导入失败");
+      setIoMsg({ kind: "ok", text: `已导入 ${d.created} 个会话${d.skipped ? `，跳过 ${d.skipped} 个重复` : ""}` });
+      await loadSessions();
+    } catch (e) {
+      setIoMsg({ kind: "err", text: String(e.message || e) });
     }
   }
 
@@ -1158,7 +1259,10 @@ function AixtermApp() {
         user: form.user,
         auth: { kind: form.authKind },
       };
-      if (form.authKind === "key") body.auth.keyPath = form.keyPath;
+      if (form.authKind === "key") {
+        body.auth.keyPath = form.keyPath;
+        if (form.keyId) body.auth.keyId = form.keyId;
+      }
       else if (form.authKind === "password") {
         body.password = form.password;
         if (form.credentialEnv) body.auth.credentialEnv = form.credentialEnv;
@@ -1222,7 +1326,11 @@ function AixtermApp() {
       <aside style={{ width: 250, flex: "0 0 250px", borderRight: `1px solid ${C.border}`, background: C.panel, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: 0.2 }}>连接</span>
-          <button style={S.btnPrimary} onClick={() => setShowCreate(true)}>+ 新建</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={S.btn} title="SSH 密钥管理" onClick={openKeys}>🔑</button>
+            <button style={S.btn} title="导入 / 导出会话" onClick={() => setShowIO(true)}>⇅</button>
+            <button style={S.btnPrimary} onClick={() => setShowCreate(true)}>+ 新建</button>
+          </div>
         </div>
 
         <div style={{ padding: "8px 10px" }}>
@@ -1431,6 +1539,108 @@ function AixtermApp() {
         </aside>
       ) : null}
 
+      {/* SSH keys modal */}
+      {showKeys ? (
+        <div
+          onClick={() => setShowKeys(false)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 620, maxWidth: "94%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>SSH 密钥管理</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+              {keys.length === 0 ? (
+                <div style={S.muted}>还没有密钥</div>
+              ) : (
+                keys.map((k) => (
+                  <div key={k.name} style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>
+                    <span style={{ flex: 1 }}>
+                      <b>{k.name}</b> <span style={S.muted}>· {k.type} · {k.fingerprint}</span>
+                    </span>
+                    <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11, color: C.danger }} onClick={() => removeKey(k.name)}>
+                      删除
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={S.muted}>名称</span>
+                <input style={S.input} value={keyForm.name} onChange={(e) => setKeyForm((f) => ({ ...f, name: e.target.value }))} placeholder="例如 x2600-key" />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={S.muted}>操作</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button style={S.btnPrimary} onClick={makeKey}>生成 ed25519</button>
+                  <button style={S.btn} onClick={importKeyMaterial}>导入粘贴的私钥</button>
+                </div>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                <span style={S.muted}>粘贴私钥（仅导入时使用；不会显示在会话里）</span>
+                <textarea
+                  value={keyForm.privateKey}
+                  onChange={(e) => setKeyForm((f) => ({ ...f, privateKey: e.target.value }))}
+                  spellCheck={false}
+                  style={{ height: 90, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: 8, fontFamily: "ui-monospace, monospace", fontSize: 11.5, resize: "vertical" }}
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                />
+              </label>
+            </div>
+            {generatedPub ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={S.muted}>公钥（复制到远端 authorized_keys）</div>
+                <textarea readOnly value={generatedPub} style={{ width: "100%", height: 56, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: 8, fontFamily: "ui-monospace, monospace", fontSize: 11 }} />
+              </div>
+            ) : null}
+            {keyMsg ? <div style={{ marginTop: 8, fontSize: 12, color: keyMsg.kind === "err" ? C.danger : C.ok }}>{keyMsg.text}</div> : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button style={S.btn} onClick={() => setShowKeys(false)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* import / export modal */}
+      {showIO ? (
+        <div
+          onClick={() => setShowIO(false)}
+          style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 520, maxWidth: "94%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>导入 / 导出会话</div>
+            <div style={{ ...S.muted, marginBottom: 6 }}>导出（不含密码；跳板按名称保留）</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <button style={S.btn} onClick={() => exportSessions("json")}>导出 JSON</button>
+              <button style={S.btn} onClick={() => exportSessions("moba")}>导出 MobaXterm</button>
+            </div>
+            <div style={{ ...S.muted, marginBottom: 6 }}>导入（支持 .json / .xsh / .mxtsessions）</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.btnPrimary} onClick={() => ioFileRef.current && ioFileRef.current.click()}>选择文件导入</button>
+              <input
+                ref={ioFileRef}
+                type="file"
+                accept=".json,.xsh,.mxtsessions,.ini,.txt"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  importSessions(e.target.files && e.target.files[0]);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+            {ioMsg ? <div style={{ marginTop: 10, fontSize: 12, color: ioMsg.kind === "err" ? C.danger : C.ok }}>{ioMsg.text}</div> : null}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button style={S.btn} onClick={() => setShowIO(false)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* settings modal */}
       {showSettings ? (
         <div
@@ -1594,10 +1804,23 @@ function AixtermApp() {
                   </label>
                 </>
               ) : form.authKind === "key" ? (
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
-                  <span style={S.muted}>私钥路径（本机绝对路径）</span>
-                  <input style={S.input} value={form.keyPath} onChange={(e) => patch("keyPath", e.target.value)} placeholder="C:\Users\you\.ssh\id_ed25519" />
-                </label>
+                <>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                    <span style={S.muted}>已存密钥（密钥管理里生成/导入的）</span>
+                    <select style={S.input} value={form.keyId} onChange={(e) => patch("keyId", e.target.value)}>
+                      <option value="">（使用下面的路径）</option>
+                      {keys.map((k) => (
+                        <option key={k.name} value={k.name}>
+                          {k.name}（{k.type}）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
+                    <span style={S.muted}>私钥路径（本机绝对路径，未选已存密钥时使用）</span>
+                    <input style={S.input} value={form.keyPath} onChange={(e) => patch("keyPath", e.target.value)} placeholder="/home/you/.ssh/id_ed25519" />
+                  </label>
+                </>
               ) : (
                 <div style={{ ...S.muted, gridColumn: "1 / span 2" }}>使用 ssh-agent（SSH_AUTH_SOCK）</div>
               )}

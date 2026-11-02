@@ -1090,6 +1090,84 @@ function SftpPanel({ sessionId, followPath }) {
     }
   }
 
+  function renderPane(index) {
+    const isMain = index === 0;
+    const terminalId = isMain ? activeId : paneIds[index - 1];
+    const paneTab = tabs.find((t) => t.id === terminalId) || null;
+    const used = new Set([activeId, ...paneIds.slice(0, extraSlots)].filter(Boolean));
+    const borderStyle = {
+      borderLeft: !isMain && (layout === "hsplit" || (layout === "quad" && index % 2 === 1)) ? `1px solid ${C.border}` : "none",
+      borderTop: !isMain && (layout === "vsplit" || (layout === "quad" && index >= 2)) ? `1px solid ${C.border}` : "none",
+    };
+    return (
+      <div
+        key={index}
+        style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", ...borderStyle }}
+      >
+        {!isMain ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderBottom: `1px solid ${C.border}`, background: C.panel }}>
+            <select
+              style={{ ...S.input, flex: 1, padding: "2px 6px", fontSize: 11 }}
+              value={terminalId || ""}
+              onChange={(e) => {
+                const next = [...paneIds];
+                next[index - 1] = e.target.value;
+                setPaneIds(next);
+              }}
+            >
+              <option value="">选择终端…</option>
+              {tabs
+                .filter((t) => t.id === terminalId || !used.has(t.id))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+            </select>
+          </div>
+        ) : null}
+        <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex" }}>
+          {isMain ? (
+            tabs.length === 0 ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.dim }}>
+                <div style={{ fontSize: 40, opacity: 0.5 }}>▚</div>
+                <div style={{ fontSize: 13 }}>选择左侧会话，或打开一个本地终端</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={S.btnPrimary} onClick={() => openTerminal(null)} disabled={busy}>打开本地终端</button>
+                  <button style={S.btn} onClick={openCreate}>新建 SSH 会话</button>
+                </div>
+              </div>
+            ) : (
+              mainTabs.map((t) => (
+                <TerminalPane
+                  key={t.id}
+                  terminalId={t.id}
+                  active={t.id === activeId}
+                  visible={t.id === activeId}
+                  prefs={prefs}
+                  onInput={(data) => handleInput(t.id, data)}
+                  onCwd={(p) => setCwdByTerminal((prev) => (prev[t.id] === p ? prev : { ...prev, [t.id]: p }))}
+                />
+              ))
+            )
+          ) : paneTab ? (
+            <TerminalPane
+              key={paneTab.id}
+              terminalId={paneTab.id}
+              active={false}
+              visible={true}
+              prefs={prefs}
+              onInput={(data) => handleInput(paneTab.id, data)}
+              onCwd={(p) => setCwdByTerminal((prev) => (prev[paneTab.id] === p ? prev : { ...prev, [paneTab.id]: p }))}
+            />
+          ) : (
+            <div style={{ ...S.muted, margin: "auto", fontSize: 12, textAlign: "center", padding: 12 }}>选择上方终端</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const msgColor = msg?.kind === "err" ? C.danger : msg?.kind === "ok" ? C.ok : C.dim;
 
   return (
@@ -1302,7 +1380,8 @@ function AixtermApp() {
   const [showMacros, setShowMacros] = useState(false);
   const [macroEdit, setMacroEdit] = useState(null);
   const [macroMsg, setMacroMsg] = useState(null);
-  const [split, setSplit] = useState(null); // { mode: "h" | "v", secondId }
+  const [layout, setLayout] = useState("single"); // single | hsplit | vsplit | quad
+  const [paneIds, setPaneIds] = useState(["", "", ""]);
   const [lockInfo, setLockInfo] = useState({ locked: false, hasMaster: false, idleMinutes: 15 });
   const [tmuxFor, setTmuxFor] = useState(null);
   const [tmuxInfo, setTmuxInfo] = useState({ available: false, sessions: [] });
@@ -1490,9 +1569,9 @@ function AixtermApp() {
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeId) || null;
-  const secondTab =
-    split && split.secondId && split.secondId !== activeId ? tabs.find((t) => t.id === split.secondId) || null : null;
-  const mainTabs = secondTab ? tabs.filter((t) => t.id !== secondTab.id) : tabs;
+  const extraSlots = layout === "quad" ? 3 : layout === "single" ? 0 : 1;
+  const assigned = new Set([activeId, ...paneIds.slice(0, extraSlots)].filter(Boolean));
+  const mainTabs = tabs.filter((t) => t.id === activeId || !assigned.has(t.id));
 
   async function openTerminal(session, tmuxNameArg) {
     // Focus an existing tab for the same session instead of opening a duplicate.
@@ -1598,14 +1677,15 @@ function AixtermApp() {
     }
   }
 
-  function cycleSplit() {
-    if (!split) {
-      const other = tabs.find((t) => t.id !== (activeId || ""));
-      setSplit({ mode: "h", secondId: other ? other.id : "" });
-    } else if (split.mode === "h") {
-      setSplit({ ...split, mode: "v" });
-    } else {
-      setSplit(null);
+  function cycleLayout() {
+    const order = ["single", "hsplit", "vsplit", "quad"];
+    const next = order[(order.indexOf(layout) + 1) % order.length];
+    setLayout(next);
+    if (next !== "single") {
+      const others = tabs.filter((t) => t.id !== (activeId || ""));
+      const needed = next === "quad" ? 3 : 1;
+      const filled = [0, 1, 2].map((i) => paneIds[i] || (i < needed && others[i] ? others[i].id : ""));
+      setPaneIds(filled);
     }
   }
 
@@ -2247,8 +2327,12 @@ function AixtermApp() {
               <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
               同步输入
             </label>
-            <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="分屏：点击切换 左右/上下/关闭" onClick={cycleSplit}>
-              ◫ 分屏{split ? (split.mode === "h" ? " ⇆" : " ⇅") : ""}
+            <button
+              style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }}
+              title="分屏：单屏 → 左右双屏 → 上下双屏 → 四屏 → 单屏"
+              onClick={cycleLayout}
+            >
+              ◫ 分屏{layout === "hsplit" ? " ⇆" : layout === "vsplit" ? " ⇅" : layout === "quad" ? " ⊞" : ""}
             </button>
             <button style={{ ...S.btn, padding: "3px 8px", fontSize: 11.5 }} title="宏管理" onClick={openMacros}>
               宏
@@ -2276,93 +2360,23 @@ function AixtermApp() {
           </div>
         </div>
 
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            position: "relative",
-            display: "flex",
-            flexDirection: split && split.mode === "v" ? "column" : "row",
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: "relative", display: "flex" }}>
-            {tabs.length === 0 ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.dim }}>
-                <div style={{ fontSize: 40, opacity: 0.5 }}>▚</div>
-                <div style={{ fontSize: 13 }}>选择左侧会话，或打开一个本地终端</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button style={S.btnPrimary} onClick={() => openTerminal(null)} disabled={busy}>打开本地终端</button>
-                  <button style={S.btn} onClick={openCreate}>新建 SSH 会话</button>
-                </div>
-              </div>
-            ) : (
-              mainTabs.map((t) => (
-                <TerminalPane
-                  key={t.id}
-                  terminalId={t.id}
-                  active={t.id === activeId}
-                  visible={t.id === activeId}
-                  prefs={prefs}
-                  onInput={(data) => handleInput(t.id, data)}
-                  onCwd={(p) => setCwdByTerminal((prev) => (prev[t.id] === p ? prev : { ...prev, [t.id]: p }))}
-                />
-              ))
-            )}
+        {layout === "quad" ? (
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr" }}>
+            {[0, 1, 2, 3].map((index) => renderPane(index))}
           </div>
-
-          {split ? (
-            <div
-              style={{
-                flex: 1,
-                minWidth: 0,
-                minHeight: 0,
-                display: "flex",
-                flexDirection: "column",
-                borderLeft: split.mode === "h" ? `1px solid ${C.border}` : "none",
-                borderTop: split.mode === "v" ? `1px solid ${C.border}` : "none",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderBottom: `1px solid ${C.border}`, background: C.panel }}>
-                <select
-                  style={{ ...S.input, flex: 1, padding: "2px 6px", fontSize: 11 }}
-                  value={split.secondId || ""}
-                  onChange={(e) => setSplit({ ...split, secondId: e.target.value })}
-                >
-                  <option value="">选择终端…</option>
-                  {tabs
-                    .filter((t) => t.id !== activeId)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title}
-                      </option>
-                    ))}
-                </select>
-                <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={() => setSplit(null)}>
-                  关闭分屏
-                </button>
-              </div>
-              <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex" }}>
-                {secondTab ? (
-                  <TerminalPane
-                    key={secondTab.id}
-                    terminalId={secondTab.id}
-                    active={false}
-                    visible={true}
-                    prefs={prefs}
-                    onInput={(data) => handleInput(secondTab.id, data)}
-                    onCwd={(p) => setCwdByTerminal((prev) => (prev[secondTab.id] === p ? prev : { ...prev, [secondTab.id]: p }))}
-                  />
-                ) : (
-                  <div style={{ ...S.muted, margin: "auto", fontSize: 12, textAlign: "center", padding: 12 }}>
-                    选择上方终端以分屏显示
-                    <br />
-                    （长命令/日志与工作终端可并排查看）
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
-        </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: layout === "vsplit" ? "column" : "row",
+            }}
+          >
+            {renderPane(0)}
+            {layout !== "single" ? renderPane(1) : null}
+          </div>
+        )}
 
         {showAi && activeTab ? (
           <AiPanel

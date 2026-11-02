@@ -24,7 +24,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`), with jump hosts and shared connections.
 - **Full SFTP management** — mkdir / rename / delete / chmod, inline text editor, and a panel that follows the terminal's cwd.
 - **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
-- **Split view** — show two terminals side by side or stacked, switch the second pane from a dropdown, and cycle left/right → stacked → off from the tab bar.
+- **Split view** — single, two panes side by side, two panes stacked, or a 2×2 quad grid; the tab-bar button cycles the layouts and every extra pane picks its terminal from a dropdown.
 - **Comfort features** — session search and duplicate, terminal find (`Ctrl+F`), context menu (copy/paste/find/download log/clear screen/clear scrollback/reset terminal), five colour themes, font family/size/line height, keyword highlighting (custom patterns + colours), broadcast input, log export (txt/HTML).
 - **Auto-reconnect** — terminals reconnect with exponential backoff after a drop.
 - **Danger-command approval** — agent-initiated `aixterm_run` / `aixterm_term_send` calls matching a configurable pattern list wait for the human's approval, and fail closed when no approval surface exists.

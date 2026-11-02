@@ -325,8 +325,11 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
     es.onmessage = (e) => {
       try {
         const bytes = b64ToBytes(e.data);
-        if (zsentry && zsentry.consume(bytes)) return;
-        term.write(bytes);
+        // With ZMODEM detection active, the Sentry owns the output path: it
+        // forwards ordinary traffic to to_terminal() itself (consume() returns
+        // undefined in that case, so a second write here would duplicate it).
+        if (zsentry) zsentry.consume(bytes);
+        else term.write(bytes);
       } catch {
         /* bad chunk */
       }
@@ -1150,6 +1153,8 @@ function AixtermApp() {
   const [tabs, setTabs] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [sessionMenu, setSessionMenu] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1243,6 +1248,12 @@ function AixtermApp() {
     const timer = setInterval(refreshLock, 30000);
     return () => clearInterval(timer);
   }, [refreshLock]);
+
+  useEffect(() => {
+    const hide = () => setSessionMenu(null);
+    document.addEventListener("click", hide);
+    return () => document.removeEventListener("click", hide);
+  }, []);
 
   // Report user activity so idle auto-lock measures real inactivity.
   useEffect(() => {
@@ -1625,6 +1636,38 @@ function AixtermApp() {
     }
   }
 
+  function openCreate() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setShowCreate(true);
+  }
+
+  function openEdit(session) {
+    const auth = session.auth || {};
+    setEditingId(session.id);
+    setForm({
+      ...EMPTY_FORM,
+      kind: session.kind || "ssh",
+      name: session.name || "",
+      group: session.group || "",
+      host: session.host || "",
+      port: String(session.port || 22),
+      user: session.user || "",
+      authKind: auth.kind || "password",
+      keyPath: auth.keyPath || "",
+      keyId: auth.keyId || "",
+      credentialEnv: auth.credentialEnv || "",
+      proxyJump: session.proxyJump || "",
+      x11: Boolean(session.x11),
+      serialPath: (session.serial && session.serial.path) || "",
+      baudRate: String((session.serial && session.serial.baudRate) || 115200),
+      dataBits: String((session.serial && session.serial.dataBits) || 8),
+      stopBits: String((session.serial && session.serial.stopBits) || 1),
+      parity: (session.serial && session.serial.parity) || "none",
+    });
+    setShowCreate(true);
+  }
+
   async function createSession() {
     if (form.kind === "serial") {
       if (!form.serialPath) {
@@ -1638,8 +1681,11 @@ function AixtermApp() {
     setBusy(true);
     setMsg(null);
     try {
+      const url = editingId ? "/sessions/update" : "/sessions";
+      const base = editingId ? { id: editingId } : {};
       if (form.kind === "serial") {
-        const d = await postJson("/sessions", {
+        const d = await postJson(url, {
+          ...base,
           kind: "serial",
           name: form.name || form.serialPath,
           group: form.group || "默认",
@@ -1653,15 +1699,17 @@ function AixtermApp() {
         });
         if (d && d.ok) {
           setShowCreate(false);
+          setEditingId(null);
           setForm(EMPTY_FORM);
           await loadSessions();
-          if (d.session) openTerminal(d.session);
+          if (!editingId && d.session) openTerminal(d.session);
         } else {
           setMsg({ kind: "err", text: (d && d.error) || "保存失败" });
         }
         return;
       }
       const body = {
+        ...base,
         name: form.name || form.host,
         group: form.group || "默认",
         host: form.host,
@@ -1673,18 +1721,19 @@ function AixtermApp() {
       if (form.authKind === "key") {
         body.auth.keyPath = form.keyPath;
         if (form.keyId) body.auth.keyId = form.keyId;
-      }
-      else if (form.authKind === "password") {
-        body.password = form.password;
+      } else if (form.authKind === "password") {
+        // Empty password while editing keeps the stored one.
+        if (form.password) body.password = form.password;
         if (form.credentialEnv) body.auth.credentialEnv = form.credentialEnv;
       }
       if (form.proxyJump) body.proxyJump = form.proxyJump;
-      const d = await postJson("/sessions", body);
+      const d = await postJson(url, body);
       if (d && d.ok) {
         setShowCreate(false);
+        setEditingId(null);
         setForm(EMPTY_FORM);
         await loadSessions();
-        if (d.session) openTerminal(d.session);
+        if (!editingId && d.session) openTerminal(d.session);
       } else {
         setMsg({ kind: "err", text: (d && d.error) || "保存失败" });
       }
@@ -1743,7 +1792,7 @@ function AixtermApp() {
             ) : null}
             <button style={S.btn} title="SSH 密钥管理" onClick={openKeys}>🔑</button>
             <button style={S.btn} title="导入 / 导出会话" onClick={() => setShowIO(true)}>⇅</button>
-            <button style={S.btnPrimary} onClick={() => setShowCreate(true)}>+ 新建</button>
+            <button style={S.btnPrimary} onClick={openCreate}>+ 新建</button>
           </div>
         </div>
 
@@ -1792,74 +1841,20 @@ function AixtermApp() {
                       onMouseLeave={(e) => {
                         if (!isActive) e.currentTarget.style.background = "transparent";
                       }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setSessionMenu({ session: s, x: e.clientX, y: e.clientY });
+                      }}
                     >
                       <span style={{ color: isActive ? C.ok : C.dim, fontSize: 11 }}>●</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
                         <div style={{ fontSize: 11, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {s.user}@{s.host}:{s.port}
+                          {s.kind === "serial"
+                            ? `${(s.serial && s.serial.path) || "串口"} @ ${(s.serial && s.serial.baudRate) || ""}`
+                            : `${s.user}@{s.host}:${s.port}`}
                         </div>
                       </div>
-                      <button
-                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
-                        title="tmux 会话"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openTmux(s);
-                        }}
-                      >
-                        ▤
-                      </button>
-                      <button
-                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
-                        title="复制会话"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          duplicateSession(s.id);
-                        }}
-                      >
-                        ⧉
-                      </button>
-                      <button
-                        style={{ ...S.btn, padding: "1px 4px", fontSize: 11 }}
-                        title="导出命令日志"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          exportLog(s.id, "html");
-                        }}
-                      >
-                        ⤓
-                      </button>
-                      <button
-                        style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
-                        title="端口转发"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openForwards(s);
-                        }}
-                      >
-                        ⇄
-                      </button>
-                      <button
-                        style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
-                        title="测试连接"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          testSession(s.id);
-                        }}
-                      >
-                        ⟳
-                      </button>
-                      <button
-                        style={{ ...S.btn, padding: "1px 6px", fontSize: 11, color: C.danger }}
-                        title="删除会话"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeSession(s.id);
-                        }}
-                      >
-                        ✕
-                      </button>
                     </div>
                   );
                 })}
@@ -1930,7 +1925,7 @@ function AixtermApp() {
               <div style={{ fontSize: 13 }}>选择左侧会话，或打开一个本地终端</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={S.btnPrimary} onClick={() => openTerminal(null)} disabled={busy}>打开本地终端</button>
-                <button style={S.btn} onClick={() => setShowCreate(true)}>新建 SSH 会话</button>
+                <button style={S.btn} onClick={openCreate}>新建 SSH 会话</button>
               </div>
             </div>
           ) : (
@@ -1974,6 +1969,49 @@ function AixtermApp() {
           <MonitorPanel sessionId={activeTab.sessionId} />
           <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
         </aside>
+      ) : null}
+
+      {/* session context menu */}
+      {sessionMenu ? (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: sessionMenu.x,
+            top: sessionMenu.y,
+            zIndex: 70,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 6,
+            padding: 4,
+            minWidth: 150,
+            boxShadow: "0 10px 30px rgba(0,0,0,.55)",
+          }}
+        >
+          {[
+            ["打开终端", () => openTerminal(sessionMenu.session)],
+            ["编辑配置", () => openEdit(sessionMenu.session)],
+            ["复制会话", () => duplicateSession(sessionMenu.session.id)],
+            ["tmux 会话", () => openTmux(sessionMenu.session)],
+            ["端口转发", () => openForwards(sessionMenu.session)],
+            ["导出日志", () => exportLog(sessionMenu.session.id, "html")],
+            ["测试连接", () => testSession(sessionMenu.session.id)],
+            ["删除会话", () => removeSession(sessionMenu.session.id), true],
+          ].map(([label, fn, danger]) => (
+            <div
+              key={label}
+              onClick={() => {
+                setSessionMenu(null);
+                fn();
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              style={{ padding: "5px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4, color: danger ? C.danger : C.text }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
       ) : null}
 
       {/* lock overlay */}
@@ -2322,7 +2360,7 @@ function AixtermApp() {
             onClick={(e) => e.stopPropagation()}
             style={{ width: 520, maxWidth: "92%", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{form.kind === "serial" ? "新建串口会话" : "新建 SSH 会话"}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>{editingId ? "编辑会话" : form.kind === "serial" ? "新建串口会话" : "新建 SSH 会话"}</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button style={form.kind === "ssh" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "ssh")}>SSH</button>
               <button style={form.kind === "serial" ? S.btnPrimary : S.btn} onClick={() => patch("kind", "serial")}>串口</button>
@@ -2423,7 +2461,7 @@ function AixtermApp() {
                 <>
                   <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
                     <span style={S.muted}>密码</span>
-                    <input style={S.input} type="password" value={form.password} onChange={(e) => patch("password", e.target.value)} />
+                    <input style={S.input} type="password" value={form.password} onChange={(e) => patch("password", e.target.value)} placeholder={editingId ? "留空表示不修改密码" : ""} />
                   </label>
                   <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / span 2" }}>
                     <span style={S.muted}>凭据引用（可选：dsh 凭据服务中的名称，优先于密码）</span>
@@ -2459,7 +2497,7 @@ function AixtermApp() {
             )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button style={S.btn} onClick={() => setShowCreate(false)}>取消</button>
-              <button style={S.btnPrimary} onClick={createSession} disabled={busy}>{busy ? "保存中…" : "保存并打开"}</button>
+              <button style={S.btnPrimary} onClick={createSession} disabled={busy}>{busy ? "保存中…" : editingId ? "保存修改" : "保存并打开"}</button>
             </div>
           </div>
         </div>

@@ -92,6 +92,71 @@ const LIGHT_THEME = {
   brightWhite: "#8c959f",
 };
 
+const THEMES = {
+  dark: XTERM_THEME,
+  light: LIGHT_THEME,
+  solarized: {
+    background: "#002b36", foreground: "#839496", cursor: "#93a1a1", selectionBackground: "#073642",
+    black: "#073642", red: "#dc322f", green: "#859900", yellow: "#b58900", blue: "#268bd2",
+    magenta: "#d33682", cyan: "#2aa198", white: "#eee8d5", brightBlack: "#002b36", brightRed: "#cb4b16",
+    brightGreen: "#586e75", brightYellow: "#657b83", brightBlue: "#839496", brightMagenta: "#6c71c4",
+    brightCyan: "#93a1a1", brightWhite: "#fdf6e3",
+  },
+  dracula: {
+    background: "#282a36", foreground: "#f8f8f2", cursor: "#f8f8f2", selectionBackground: "#44475a",
+    black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c", blue: "#bd93f9",
+    magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2", brightBlack: "#6272a4", brightRed: "#ff6e6e",
+    brightGreen: "#69ff94", brightYellow: "#ffffa5", brightBlue: "#d6acff", brightMagenta: "#ff92df",
+    brightCyan: "#a4ffff", brightWhite: "#ffffff",
+  },
+  contrast: {
+    background: "#000000", foreground: "#00ff00", cursor: "#00ff00", selectionBackground: "#005500",
+    black: "#000000", red: "#ff5555", green: "#00ff00", yellow: "#ffff00", blue: "#55aaff",
+    magenta: "#ff55ff", cyan: "#55ffff", white: "#ffffff", brightBlack: "#555555", brightRed: "#ff8888",
+    brightGreen: "#88ff88", brightYellow: "#ffff88", brightBlue: "#88bbff", brightMagenta: "#ff88ff",
+    brightCyan: "#88ffff", brightWhite: "#ffffff",
+  },
+};
+
+const FONT_CHOICES = [
+  ["", "默认等宽字体"],
+  ["'Cascadia Code', monospace", "Cascadia Code"],
+  ["'JetBrains Mono', monospace", "JetBrains Mono"],
+  ["Consolas, monospace", "Consolas"],
+  ["Menlo, monospace", "Menlo"],
+  ["'Source Code Pro', monospace", "Source Code Pro"],
+  ["ui-monospace, monospace", "系统等宽"],
+];
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+function hexToRgb(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  return `${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`;
+}
+
+/** Build a text transformer that colors keyword matches (ANSI apart). */
+function buildHighlighter(rules) {
+  const valid = (rules || []).filter((r) => r && String(r.pattern || "").trim() && HEX_RE.test(String(r.color || "")));
+  if (!valid.length) return null;
+  const escapeRe = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(valid.map((r) => escapeRe(r.pattern.trim())).join("|"), "gi");
+  const colorOf = (match) => {
+    const lower = match.toLowerCase();
+    const hit = valid.find((r) => r.pattern.trim().toLowerCase() === lower);
+    return (hit || valid[0]).color;
+  };
+  return (text) => {
+    const parts = String(text).split(/(\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07)/);
+    return parts
+      .map((part, i) => {
+        if (i % 2 === 1) return part;
+        return part.replace(re, (m) => `\x1b[38;2;${hexToRgb(colorOf(m))}m${m}\x1b[39m`);
+      })
+      .join("");
+  };
+}
+
 const EMPTY_FORM = { kind: "ssh", name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", keyId: "", group: "", proxyJump: "", credentialEnv: "", x11: false, serialPath: "", baudRate: "115200", dataBits: "8", stopBits: "1", parity: "none" };
 
 const S = {
@@ -181,6 +246,8 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
   const hostRef = useRef(null);
   const onCwdRef = useRef(onCwd);
   const onInputRef = useRef(onInput);
+  const prefsRef = useRef(prefs);
+  const hlRef = useRef({ key: "", fn: null });
   const searchRef = useRef(null);
   const zmodemSendRef = useRef(null);
   const zfileRef = useRef(null);
@@ -197,6 +264,10 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
   useEffect(() => {
     onInputRef.current = onInput;
   }, [onInput]);
+
+  useEffect(() => {
+    prefsRef.current = prefs;
+  }, [prefs]);
 
   useEffect(() => {
     const hide = () => setMenu(null);
@@ -275,16 +346,26 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
     // ZMODEM: detect sz/rz transfers on the raw byte stream. Remote `sz`
     // downloads are saved to disk automatically; remote `rz` asks for local
     // files through a hidden picker.
+    // Decode bytes to text (streaming, multi-byte safe), apply keyword
+    // highlighting, then write to the terminal.
+    const decoder = new TextDecoder("utf-8");
+    const writeOut = (octets) => {
+      try {
+        const bytes = octets instanceof Uint8Array ? octets : Uint8Array.from(octets);
+        const text = decoder.decode(bytes, { stream: true });
+        const rules = prefsRef.current && prefsRef.current.highlights;
+        const key = rules && rules.length ? JSON.stringify(rules) : "";
+        if (hlRef.current.key !== key) hlRef.current = { key, fn: key ? buildHighlighter(rules) : null };
+        term.write(hlRef.current.fn ? hlRef.current.fn(text) : text);
+      } catch {
+        /* terminal gone */
+      }
+    };
+
     let zsentry = null;
     try {
       zsentry = new Zmodem.Sentry({
-        to_terminal: (octets) => {
-          try {
-            term.write(octets);
-          } catch {
-            /* terminal gone */
-          }
-        },
+        to_terminal: (octets) => writeOut(octets),
         sender: (octets) => {
           postJson("/term/input", { terminalId, dataB64: bytesToB64(octets) }).catch(() => {});
         },
@@ -329,7 +410,7 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
         // forwards ordinary traffic to to_terminal() itself (consume() returns
         // undefined in that case, so a second write here would duplicate it).
         if (zsentry) zsentry.consume(bytes);
-        else term.write(bytes);
+        else writeOut(bytes);
       } catch {
         /* bad chunk */
       }
@@ -393,12 +474,14 @@ function TerminalPane({ terminalId, active, onCwd, onInput, prefs }) {
     if (!term) return;
     try {
       term.options.fontSize = (prefs && prefs.fontSize) || 13;
-      term.options.theme = prefs && prefs.theme === "light" ? LIGHT_THEME : XTERM_THEME;
+      term.options.fontFamily = (prefs && prefs.fontFamily) || mono;
+      term.options.lineHeight = Number(prefs && prefs.lineHeight) || 1.15;
+      term.options.theme = THEMES[(prefs && prefs.theme) || "dark"] || XTERM_THEME;
       fitRef.current && fitRef.current.fit();
     } catch {
       /* options not ready */
     }
-  }, [prefs && prefs.fontSize, prefs && prefs.theme]);
+  }, [prefs && prefs.fontSize, prefs && prefs.theme, prefs && prefs.fontFamily, prefs && prefs.lineHeight]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -1194,9 +1277,9 @@ function AixtermApp() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark" };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [] };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -1473,6 +1556,19 @@ function AixtermApp() {
     } catch {
       /* storage unavailable */
     }
+  }
+
+  function updateHighlight(index, patchObj) {
+    const list = (prefs.highlights || []).map((r, i) => (i === index ? { ...r, ...patchObj } : r));
+    updatePrefs({ highlights: list });
+  }
+
+  function addHighlight() {
+    updatePrefs({ highlights: [...(prefs.highlights || []), { pattern: "", color: "#ff5555" }] });
+  }
+
+  function removeHighlight(index) {
+    updatePrefs({ highlights: (prefs.highlights || []).filter((_, i) => i !== index) });
   }
 
   function handleInput(sourceId, data) {
@@ -2556,12 +2652,59 @@ function AixtermApp() {
               <input type="range" min="10" max="20" step="1" value={prefs.fontSize} onChange={(e) => updatePrefs({ fontSize: Number(e.target.value) })} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={S.muted}>主题</span>
+              <span style={S.muted}>配色主题</span>
               <select style={S.input} value={prefs.theme} onChange={(e) => updatePrefs({ theme: e.target.value })}>
-                <option value="dark">深色</option>
+                <option value="dark">深色（GitHub Dark）</option>
                 <option value="light">浅色</option>
+                <option value="solarized">Solarized Dark</option>
+                <option value="dracula">Dracula</option>
+                <option value="contrast">高对比（黑底绿字）</option>
               </select>
             </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              <span style={S.muted}>字体</span>
+              <select style={S.input} value={prefs.fontFamily || ""} onChange={(e) => updatePrefs({ fontFamily: e.target.value })}>
+                {FONT_CHOICES.map(([value, label]) => (
+                  <option key={label} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              <span style={S.muted}>行高：{Number(prefs.lineHeight) || 1.15}</span>
+              <input
+                type="range"
+                min="1"
+                max="1.6"
+                step="0.05"
+                value={Number(prefs.lineHeight) || 1.15}
+                onChange={(e) => updatePrefs({ lineHeight: Number(e.target.value) })}
+              />
+            </label>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ ...S.muted, marginBottom: 4 }}>关键字高亮</div>
+              {(prefs.highlights || []).length === 0 ? (
+                <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>暂无规则（例如把 ERROR 标红、WARN 标黄）</div>
+              ) : (
+                (prefs.highlights || []).map((rule, i) => (
+                  <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                    <input
+                      style={{ ...S.input, flex: 1 }}
+                      value={rule.pattern || ""}
+                      onChange={(e) => updateHighlight(i, { pattern: e.target.value })}
+                      placeholder="关键字（区分大小写无关）"
+                    />
+                    <input
+                      type="color"
+                      value={HEX_RE.test(rule.color || "") ? rule.color : "#ff5555"}
+                      onChange={(e) => updateHighlight(i, { color: e.target.value })}
+                      style={{ width: 44, height: 28, background: "transparent", border: "none", padding: 0 }}
+                    />
+                    <button style={{ ...S.btn, padding: "1px 8px" }} onClick={() => removeHighlight(i)}>✕</button>
+                  </div>
+                ))
+              )}
+              <button style={{ ...S.btn, marginTop: 4 }} onClick={addHighlight}>＋ 添加高亮规则</button>
+            </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, fontSize: 12 }}>
               <div style={{ ...S.muted, marginBottom: 6 }}>安全锁定</div>
               {lockInfo.hasMaster ? (

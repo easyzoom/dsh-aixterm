@@ -242,7 +242,7 @@ function parentPath(p) {
 
 /* ---------------------------------------------------------------- terminal */
 
-function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, onAiAsk, prefs }) {
+function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, onAiAsk, sessionOptions = [], prefs }) {
   const tr = (zh, en) => ((prefs && prefs.lang) === "en" ? en : zh);
   const hostRef = useRef(null);
   const onCwdRef = useRef(onCwd);
@@ -733,15 +733,16 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
       askBox && askBox.sel && !q.includes(askBox.sel.slice(0, 40))
         ? `${q || "解释这段输出"}\n\n（选中的终端内容：\n${askBox.sel.slice(0, 2000)}\n）`
         : q;
+    const target = (askBox && askBox.target) || "";
     setAskBox(null);
     setAskText("");
-    if (onAiAsk) onAiAsk(withSel);
+    if (onAiAsk) onAiAsk(withSel, target);
   }
 
   const menuItems = [
     ["AI 提问", () => {
       const sel = (termRef.current && termRef.current.getSelection()) || "";
-      setAskBox({ x: menu ? menu.x : 100, y: menu ? menu.y : 100, sel });
+      setAskBox({ x: menu ? menu.x : 100, y: menu ? menu.y : 100, sel, target: "" });
     }],
     ["复制", copySelection],
     ["粘贴", pasteClipboard],
@@ -942,6 +943,19 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
             AI 提问{askBox.sel ? "（已附选中的终端内容）" : ""}
           </div>
+          <select
+            style={{ ...S.input, width: "100%", boxSizing: "border-box", padding: "2px 6px", fontSize: 11, marginBottom: 6 }}
+            value={askBox.target || ""}
+            onChange={(e) => setAskBox((b) => (b ? { ...b, target: e.target.value } : b))}
+          >
+            <option value="">{tr("当前 / 默认会话", "Current / default session")}</option>
+            <option value="__new__">{tr("＋ 新建会话（dsh 默认模型，可在主界面调整）", "+ New session (dsh default model)")}</option>
+            {sessionOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.title}
+              </option>
+            ))}
+          </select>
           <textarea
             autoFocus
             value={askText}
@@ -1167,7 +1181,7 @@ function projectTranscript(entries) {
   return out.slice(-40);
 }
 
-function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, onInitialConsumed, onClose }) {
+function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, initialSessionTarget, onInitialConsumed, onClose }) {
   const tr = (zh, en) => (lang === "en" ? en : zh);
   const [prompt, setPrompt] = useState("");
   const [err, setErr] = useState(null);
@@ -1369,13 +1383,13 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, onI
 
   useEffect(() => {
     if (initialPrompt) {
-      send(initialPrompt);
+      send(initialPrompt, initialSessionTarget || "");
       if (onInitialConsumed) onInitialConsumed();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
-  async function send(textOverride) {
+  async function send(textOverride, targetOverride) {
     const q = String(textOverride || prompt || "").trim();
     if (!q && !pendingImage) return;
     setErr(null);
@@ -1390,7 +1404,7 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, onI
       setErr(tr("主会话服务不可用", "Main session service unavailable"));
       return;
     }
-    let target = chosenSession;
+    let target = targetOverride || chosenSession;
     let created = false;
     if (target === "__new__" || (!target && !sessionChoices.length)) {
       try {
@@ -1422,8 +1436,10 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, onI
       setPrompt("");
       setPendingImage(null);
       setLastSentSession(target);
-      if (created) setChosenSession(target);
-      setNotice(created ? tr("已新建主会话并发送", "New session created") : "");
+      if (created || targetOverride) setChosenSession(target);
+      if (created) {
+        setNotice(tr("已新建主会话（dsh 默认模型，可在主界面调整）并发送", "New session created (dsh default model)"));
+      }
     } catch (e) {
       setErr(tr("发送失败：", "Send failed: ") + String((e && e.message) || e));
     } finally {
@@ -2147,6 +2163,48 @@ function AixtermApp({ hostCtx }) {
   const [serialPorts, setSerialPorts] = useState([]);
   const [showAi, setShowAi] = useState(false);
   const [aiInitialAsk, setAiInitialAsk] = useState("");
+  const [aiAskTarget, setAiAskTarget] = useState("");
+  const [aiSessionOptions, setAiSessionOptions] = useState([]);
+
+  useEffect(() => {
+    if (!hostCtx || typeof hostCtx.get !== "function") return undefined;
+    let sessions;
+    try {
+      sessions = hostCtx.get("sessions");
+    } catch {
+      sessions = undefined;
+    }
+    if (!sessions || !sessions.list) return undefined;
+    const read = () => {
+      try {
+        const snap = sessions.list.getSnapshot();
+        const ids = (snap && snap.ids) || [];
+        const byId = (snap && snap.byId) || {};
+        setAiSessionOptions(
+          ids.map((id) => ({
+            id,
+            title: (byId[id] && (byId[id].title || byId[id].name || byId[id].displayTitle)) || String(id).slice(0, 8),
+          }))
+        );
+      } catch {
+        /* snapshot unavailable */
+      }
+    };
+    read();
+    let unsub;
+    try {
+      unsub = sessions.list.subscribe ? sessions.list.subscribe(read) : undefined;
+    } catch {
+      unsub = undefined;
+    }
+    return () => {
+      try {
+        unsub && unsub();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [hostCtx]);
   const [termSettings, setTermSettings] = useState({ saveScrollback: true, scrollbackDir: "", bufferLines: 2000, dataDir: "" });
   const [termSettingsMsg, setTermSettingsMsg] = useState(null);
   const recRef = useRef(null);
@@ -2472,8 +2530,9 @@ function AixtermApp({ hostCtx }) {
     }
   }
 
-  function handleAiAsk(question) {
+  function handleAiAsk(question, target) {
     setAiInitialAsk(question);
+    setAiAskTarget(target || "");
     setShowAi(true);
   }
 
@@ -3026,6 +3085,7 @@ function AixtermApp({ hostCtx }) {
                   sessionId={t.sessionId || ""}
                   active={t.id === activeId}
                   visible={t.id === activeId}
+                  sessionOptions={aiSessionOptions}
                   onAiAsk={handleAiAsk}
                   prefs={prefs}
                   onInput={(data) => handleInput(t.id, data)}
@@ -3040,6 +3100,7 @@ function AixtermApp({ hostCtx }) {
               sessionId={paneTab.sessionId || ""}
               active={false}
               visible={true}
+              sessionOptions={aiSessionOptions}
               onAiAsk={handleAiAsk}
               prefs={prefs}
               onInput={(data) => handleInput(paneTab.id, data)}
@@ -3295,7 +3356,11 @@ function AixtermApp({ hostCtx }) {
             terminalId={activeTab.id}
             cwd={cwdByTerminal[activeTab.id]}
             initialPrompt={aiInitialAsk}
-            onInitialConsumed={() => setAiInitialAsk("")}
+            initialSessionTarget={aiAskTarget}
+            onInitialConsumed={() => {
+              setAiInitialAsk("");
+              setAiAskTarget("");
+            }}
             onClose={() => setShowAi(false)}
           />
         ) : null}

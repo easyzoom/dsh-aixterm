@@ -1181,7 +1181,7 @@ function projectTranscript(entries) {
   return out.slice(-40);
 }
 
-function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, initialSessionTarget, onInitialConsumed, onClose }) {
+function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, initialSessionTarget, aiModelPolicy, aiProvider, aiModel, aiEffort, onInitialConsumed, onClose }) {
   const tr = (zh, en) => (lang === "en" ? en : zh);
   const [prompt, setPrompt] = useState("");
   const [err, setErr] = useState(null);
@@ -1427,6 +1427,34 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, ini
     try {
       ref = sessions.retain(target, { source: "controllerOperation" });
       await ref.ready;
+    if (aiModelPolicy === "override" && aiProvider && aiModel) {
+      let dirs;
+      try {
+        dirs = hostCtx && typeof hostCtx.get === "function" ? hostCtx.get("modelDirectories") : undefined;
+      } catch {
+        dirs = undefined;
+      }
+      if (!dirs || typeof dirs.directoryFor !== "function") {
+        setErr(tr("模型目录服务不可用", "Model directory service unavailable"));
+        return;
+      }
+      try {
+        const directory = dirs.directoryFor(target);
+        const switched = await directory.select({
+          provider: aiProvider,
+          model: aiModel,
+          ...(aiEffort ? { reasoningEffort: aiEffort } : {}),
+        });
+        if (switched && switched.ok === false) {
+          const detail = switched.error && (switched.error.message || switched.error.code);
+          setErr(tr("切换模型失败：", "Model switch failed: ") + String(detail || "unknown"));
+          return;
+        }
+      } catch (e) {
+        setErr(tr("切换模型失败：", "Model switch failed: ") + String((e && e.message) || e));
+        return;
+      }
+    }
       const text = q || tr("（请分析这张图片）", "(please analyze this image)");
       const parts = [{ type: "text", text }];
       if (pendingImage) {
@@ -2130,9 +2158,9 @@ function AixtermApp({ hostCtx }) {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off" };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "" };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -3357,6 +3385,10 @@ function AixtermApp({ hostCtx }) {
             cwd={cwdByTerminal[activeTab.id]}
             initialPrompt={aiInitialAsk}
             initialSessionTarget={aiAskTarget}
+            aiModelPolicy={prefs.aiModelPolicy}
+            aiProvider={prefs.aiProvider}
+            aiModel={prefs.aiModel}
+            aiEffort={prefs.aiEffort}
             onInitialConsumed={() => {
               setAiInitialAsk("");
               setAiAskTarget("");
@@ -3762,6 +3794,7 @@ function AixtermApp({ hostCtx }) {
             <div style={{ display: "flex", gap: 4, padding: "8px 12px 0", borderBottom: `1px solid ${C.border}`, overflowX: "auto", flex: "0 0 auto" }}>
               {[
                 ["display", "显示", "Display"],
+                ["ai", "AI", "AI"],
                 ["highlight", "高亮", "Highlighting"],
                 ["security", "安全", "Security"],
                 ["storage", "存储", "Storage"],
@@ -3844,6 +3877,63 @@ function AixtermApp({ hostCtx }) {
                     <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
                   </label>
                 </>
+              ) : null}
+
+              {settingsTab === "ai" ? (
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ ...S.muted, marginBottom: 6 }}>{tr("AI 提问使用的模型", "Model used for AI questions")}</div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      checked={(prefs.aiModelPolicy || "follow") === "follow"}
+                      onChange={() => updatePrefs({ aiModelPolicy: "follow" })}
+                    />
+                    <span>{tr("跟随主会话模型（默认，与主界面一致）", "Follow the main session model (default)")}</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 6 }}>
+                    <input
+                      type="radio"
+                      checked={prefs.aiModelPolicy === "override"}
+                      onChange={() => updatePrefs({ aiModelPolicy: "override" })}
+                    />
+                    <span>{tr("使用指定模型（每次提问前切换目标会话的模型）", "Use a specific model (switches the target session before each question)")}</span>
+                  </label>
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <input
+                      style={{ ...S.input, flex: 1 }}
+                      value={prefs.aiProvider || ""}
+                      onChange={(e) => updatePrefs({ aiProvider: e.target.value })}
+                      placeholder={tr("provider，如 example-provider", "provider, e.g. example-provider")}
+                      disabled={prefs.aiModelPolicy !== "override"}
+                    />
+                    <input
+                      style={{ ...S.input, flex: 1 }}
+                      value={prefs.aiModel || ""}
+                      onChange={(e) => updatePrefs({ aiModel: e.target.value })}
+                      placeholder={tr("model，如 example-model", "model, e.g. example-model")}
+                      disabled={prefs.aiModelPolicy !== "override"}
+                    />
+                  </div>
+                  <input
+                    style={{ ...S.input, marginTop: 6 }}
+                    value={prefs.aiEffort || ""}
+                    onChange={(e) => updatePrefs({ aiEffort: e.target.value })}
+                    placeholder={tr("推理强度（可选，如 high；留空默认）", "Reasoning effort (optional, e.g. high)")}
+                    disabled={prefs.aiModelPolicy !== "override"}
+                  />
+                  <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
+                    {tr(
+                      "指定模型会通过 selectModel 应用到目标会话，该会话在主界面显示的模型也会随之改变。",
+                      "The specific model is applied to the target session via selectModel, so the model shown in the main UI changes too."
+                    )}
+                  </div>
+                  <div style={{ ...S.muted, marginTop: 4, fontSize: 11 }}>
+                    {tr(
+                      "可用模型见主界面模型选择器；错误示例：provider 写 example-provider，model 写 example-model。",
+                      "See the main UI model picker for valid names, e.g. example-provider / example-model."
+                    )}
+                  </div>
+                </div>
               ) : null}
 
               {settingsTab === "highlight" ? (
@@ -4293,4 +4383,4 @@ export function apply(ctx) {
   }
 }
 
-export const inject = ["slots"];
+export const inject = ["slots", "sessions", "workspaces", "uiWorkspace", "modelDirectories", "remote.session"];

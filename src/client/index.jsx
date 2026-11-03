@@ -1109,6 +1109,20 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
   const [presetText, setPresetText] = useState("");
   const [lastSentSession, setLastSentSession] = useState("");
   const [transcript, setTranscript] = useState([]);
+  const [modelChoices, setModelChoices] = useState([]);
+  const [chosenModel, setChosenModel] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(PREFIX + "/models");
+        const d = await r.json();
+        if (d && d.ok) setModelChoices(d.providers || []);
+      } catch {
+        /* models unavailable */
+      }
+    })();
+  }, []);
   const [notice, setNotice] = useState("");
   const imgFileRef = useRef(null);
 
@@ -1378,11 +1392,13 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
     setErr(null);
     setAnswer("");
     try {
+      const [prov, mod] = chosenModel ? chosenModel.split("|") : ["", ""];
       const d = await postJson("/ai/ask", {
         sessionId,
         terminalId,
         cwd,
         prompt: q,
+        ...(prov ? { provider: prov, model: mod } : {}),
         ...(pendingImage ? { imageB64: pendingImage.b64, imageType: pendingImage.type, imageName: pendingImage.name } : {}),
       });
       if (d && d.ok) {
@@ -1473,6 +1489,26 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
           />
         </div>
       ) : null}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+        <span style={S.muted}>{tr("模型", "Model")}</span>
+        <select
+          style={{ ...S.input, flex: 1, padding: "2px 6px", fontSize: 11 }}
+          value={chosenModel}
+          onChange={(e) => setChosenModel(e.target.value)}
+          title={tr("仅影响「问 AI」；主会话使用主界面选择的模型", "Affects Ask AI only; the main session keeps the model chosen in the main UI")}
+        >
+          <option value="">{tr("自动选择", "Auto")}</option>
+          {modelChoices.map((p) => (
+            <optgroup key={p.id} label={p.name}>
+              {p.models.map((m) => (
+                <option key={p.id + "|" + m.id} value={p.id + "|" + m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
       <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
         <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("解释终端里最近输出中的错误，并给出修复建议")} disabled={busy}>
           诊断错误

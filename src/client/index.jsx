@@ -927,10 +927,11 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",
-            left: Math.min(askBox.x + 4, (typeof window !== "undefined" ? window.innerWidth : 1200) - 380),
+            left: Math.min(askBox.x + 4, (typeof window !== "undefined" ? window.innerWidth : 1200) - 388),
             top: askBox.y + 4,
             zIndex: 80,
-            width: 360,
+            width: 380,
+            boxSizing: "border-box",
             background: C.panel,
             border: `1px solid ${C.border}`,
             borderRadius: 8,
@@ -952,6 +953,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
             placeholder={tr("问什么？（Ctrl+Enter 发送到主会话 AI）", "Ask (Ctrl+Enter to send)")}
             style={{
               width: "100%",
+              boxSizing: "border-box",
               height: 72,
               background: C.bg,
               color: C.text,

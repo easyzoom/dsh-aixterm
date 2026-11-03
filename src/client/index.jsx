@@ -1067,8 +1067,47 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
   const [pendingImage, setPendingImage] = useState(null);
   const [sessionChoices, setSessionChoices] = useState([]);
   const [chosenSession, setChosenSession] = useState("");
+  const [workspaceChoices, setWorkspaceChoices] = useState([]);
+  const [chosenWorkspace, setChosenWorkspace] = useState("");
+  const [presetText, setPresetText] = useState("");
+  const [lastSentSession, setLastSentSession] = useState("");
   const [notice, setNotice] = useState("");
   const imgFileRef = useRef(null);
+
+  useEffect(() => {
+    let workspaces;
+    try {
+      workspaces = hostCtx && typeof hostCtx.get === "function" ? hostCtx.get("workspaces") : undefined;
+    } catch {
+      workspaces = undefined;
+    }
+    if (!workspaces || !workspaces.list) return undefined;
+    const read = () => {
+      try {
+        const snap = workspaces.list.getSnapshot();
+        const list = Array.isArray(snap) ? snap : (snap && snap.workspaces) || [];
+        setWorkspaceChoices(
+          list.map((w) => ({ id: w.id || w.workspaceId, title: w.title || w.name || String(w.id || "").slice(0, 8) }))
+        );
+      } catch {
+        /* snapshot unavailable */
+      }
+    };
+    read();
+    let unsub;
+    try {
+      unsub = workspaces.list.subscribe ? workspaces.list.subscribe(read) : undefined;
+    } catch {
+      unsub = undefined;
+    }
+    return () => {
+      try {
+        unsub && unsub();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [hostCtx]);
 
   useEffect(() => {
     let sessions;
@@ -1125,6 +1164,19 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
       return;
     }
     let target = chosenSession;
+    let created = false;
+    if (target === "__new__" || (!target && !sessionChoices.length)) {
+      try {
+        target = await sessions.create({
+          ...(chosenWorkspace ? { workspaceId: chosenWorkspace } : {}),
+          ...(presetText.trim() ? { agentPreset: presetText.trim() } : {}),
+        });
+        created = true;
+      } catch (e) {
+        setErr("新建主会话失败：" + String((e && e.message) || e));
+        return;
+      }
+    }
     if (!target && typeof sessions.scopeOf === "function") {
       try {
         target = sessions.scopeOf(hostCtx) || "";
@@ -1148,7 +1200,8 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
       await ref.binding.session.prompt(parts, "queue");
       setPrompt("");
       setPendingImage(null);
-      setNotice("已发送到主会话");
+      setLastSentSession(target);
+      setNotice(created ? "已新建主会话并发送" : "已发送到主会话");
     } catch (e) {
       setErr("发送到主会话失败：" + String((e && e.message) || e));
     } finally {
@@ -1157,6 +1210,25 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  function openMainSession() {
+    const target = lastSentSession || chosenSession;
+    if (!target || target === "__new__") {
+      setErr("先发送一次或选择一个主会话");
+      return;
+    }
+    try {
+      const ui = hostCtx && typeof hostCtx.get === "function" ? hostCtx.get("uiWorkspace") : undefined;
+      if (ui && typeof ui.openSession === "function") {
+        ui.openSession(target);
+        setNotice("已打开主会话");
+      } else {
+        setErr("主工作区导航不可用");
+      }
+    } catch (e) {
+      setErr("打开主会话失败：" + String((e && e.message) || e));
     }
   }
 
@@ -1258,13 +1330,39 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
           onChange={(e) => setChosenSession(e.target.value)}
         >
           <option value="">{tr("当前 / 默认会话", "Current / default")}</option>
+          <option value="__new__">{tr("＋ 新建会话（按下方工作区/模式）", "+ New session (workspace/preset below)")}</option>
           {sessionChoices.map((sc) => (
             <option key={sc.id} value={sc.id}>
               {sc.title}
             </option>
           ))}
         </select>
+        <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={openMainSession} title={tr("在主工作区打开该会话", "Open the session in the main workspace")}>
+          ↗
+        </button>
       </div>
+      {chosenSession === "__new__" || (!chosenSession && !sessionChoices.length) ? (
+        <div style={{ display: "flex", gap: 6, padding: "4px 10px", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+          <select
+            style={{ ...S.input, flex: 1, padding: "2px 6px", fontSize: 11 }}
+            value={chosenWorkspace}
+            onChange={(e) => setChosenWorkspace(e.target.value)}
+          >
+            <option value="">{tr("默认工作区", "Default workspace")}</option>
+            {workspaceChoices.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.title}
+              </option>
+            ))}
+          </select>
+          <input
+            style={{ ...S.input, width: 120, padding: "2px 6px", fontSize: 11 }}
+            value={presetText}
+            onChange={(e) => setPresetText(e.target.value)}
+            placeholder={tr("模式（如 standard）", "Preset (e.g. standard)")}
+          />
+        </div>
+      ) : null}
       <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
         <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("解释终端里最近输出中的错误，并给出修复建议")} disabled={busy}>
           诊断错误

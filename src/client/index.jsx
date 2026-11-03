@@ -923,15 +923,22 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
           e.target.value = "";
         }}
       />
-      {askBox ? (
+      {askBox ? (() => {
+        const popW = 380;
+        const popH = 220;
+        const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+        const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+        const left = Math.min(Math.max(8, askBox.x + 4), Math.max(8, vw - popW - 8));
+        const top = askBox.y + 4 + popH > vh - 8 ? Math.max(8, askBox.y - popH - 4) : askBox.y + 4;
+        return (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",
-            left: Math.min(askBox.x + 4, (typeof window !== "undefined" ? window.innerWidth : 1200) - 388),
-            top: askBox.y + 4,
+            left,
+            top,
             zIndex: 80,
-            width: 380,
+            width: popW,
             boxSizing: "border-box",
             background: C.panel,
             border: `1px solid ${C.border}`,
@@ -988,7 +995,8 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
             <button style={S.btnPrimary} onClick={submitAsk}>{tr("发送到 AI", "Send")}</button>
           </div>
         </div>
-      ) : null}
+        );
+      })() : null}
       {menu ? (
         <div
           onClick={(e) => e.stopPropagation()}
@@ -3444,8 +3452,8 @@ function AixtermApp({ hostCtx }) {
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",
-            left: sessionMenu.x,
-            top: sessionMenu.y,
+            left: Math.min(sessionMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 180),
+            top: Math.min(sessionMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 250),
             zIndex: 70,
             background: C.panel,
             border: `1px solid ${C.border}`,

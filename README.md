@@ -24,6 +24,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`), with jump hosts and shared connections.
 - **Full SFTP management** — mkdir / rename / delete / chmod, inline text editor, and a panel that follows the terminal's cwd.
 - **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
+- **Collapsible side panels** — the session list (left) and the monitor/SFTP column (right) collapse to a slim icon strip and restore with one click, remembered across reloads.
 - **Split view** — single, two panes side by side, two panes stacked, or a 2×2 quad grid; the tab-bar button cycles the layouts and every extra pane picks its terminal from a dropdown.
 - **Command history and fuzzy suggestions** — commands typed in a terminal are recorded per session (persisted, deduplicated); typing a prefix shows up to five history matches and Tab completes the first one. Suggestions are hidden automatically in full-screen programs (alternate screen: vim, top, less …).
 - **Line-number / timestamp gutter** — optional left gutter showing buffer line numbers, wall-clock timestamps, or both; it follows scrolling and is per-terminal.

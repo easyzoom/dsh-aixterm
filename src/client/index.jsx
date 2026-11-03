@@ -2096,6 +2096,20 @@ function AixtermApp({ hostCtx }) {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("display");
+  const [leftCollapsed, setLeftCollapsed] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("aixterm.layout") || "{}").left === true;
+    } catch {
+      return false;
+    }
+  });
+  const [rightCollapsed, setRightCollapsed] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("aixterm.layout") || "{}").right === true;
+    } catch {
+      return false;
+    }
+  });
   const [broadcast, setBroadcast] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [keys, setKeys] = useState([]);
@@ -2228,6 +2242,14 @@ function AixtermApp({ hostCtx }) {
     document.addEventListener("click", hide);
     return () => document.removeEventListener("click", hide);
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("aixterm.layout", JSON.stringify({ left: leftCollapsed, right: rightCollapsed }));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [leftCollapsed, rightCollapsed]);
 
   // Report user activity so idle auto-lock measures real inactivity.
   useEffect(() => {
@@ -3016,7 +3038,29 @@ function AixtermApp({ hostCtx }) {
       }}
     >
       {/* left: connections */}
-      <aside style={{ width: 250, flex: "0 0 250px", borderRight: `1px solid ${C.border}`, background: C.panel, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <aside
+        style={{
+          width: leftCollapsed ? 34 : 250,
+          flex: leftCollapsed ? "0 0 34px" : "0 0 250px",
+          borderRight: `1px solid ${C.border}`,
+          background: C.panel,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        {leftCollapsed ? (
+          <button
+            style={{ ...S.btn, margin: "10px auto", padding: "4px 6px", fontSize: 12 }}
+            title={tr("展开连接列表", "Expand sessions")}
+            onClick={() => setLeftCollapsed(false)}
+          >
+            »
+          </button>
+        ) : null}
+        {leftCollapsed ? null : (
+          <>
         <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 600, fontSize: 13, letterSpacing: 0.2 }}>{tr("连接", "Sessions")}</span>
           <div style={{ display: "flex", gap: 6 }}>
@@ -3026,6 +3070,9 @@ function AixtermApp({ hostCtx }) {
             <button style={S.btn} title="SSH 密钥管理" onClick={openKeys}>🔑</button>
             <button style={S.btn} title="导入 / 导出会话" onClick={() => setShowIO(true)}>⇅</button>
             <button style={S.btnPrimary} onClick={openCreate}>{tr("+ 新建", "+ New")}</button>
+            <button style={S.btn} title={tr("收起连接列表", "Collapse sessions")} onClick={() => setLeftCollapsed(true)}>
+              «
+            </button>
           </div>
         </div>
 
@@ -3109,6 +3156,8 @@ function AixtermApp({ hostCtx }) {
         </div>
 
         {msg ? <div style={{ padding: "8px 12px", fontSize: 12, color: msgColor, borderTop: `1px solid ${C.border}` }}>{msg.text}</div> : null}
+          </>
+        )}
       </aside>
 
       {/* center: tabs + terminals */}
@@ -3222,17 +3271,39 @@ function AixtermApp({ hostCtx }) {
       {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? (
         <aside
           style={{
-            width: 340,
-            flex: "0 0 340px",
+            width: rightCollapsed ? 34 : 340,
+            flex: rightCollapsed ? "0 0 34px" : "0 0 340px",
             borderLeft: `1px solid ${C.border}`,
             background: C.panel,
             display: "flex",
             flexDirection: "column",
             minHeight: 0,
+            overflow: "hidden",
           }}
         >
-          <MonitorPanel sessionId={activeTab.sessionId} />
-          <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
+          {rightCollapsed ? (
+            <button
+              style={{ ...S.btn, margin: "10px auto", padding: "4px 6px", fontSize: 12 }}
+              title={tr("展开监控与文件", "Expand monitor & files")}
+              onClick={() => setRightCollapsed(false)}
+            >
+              «
+            </button>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 6px 0" }}>
+                <button
+                  style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
+                  title={tr("收起右侧面板", "Collapse right panel")}
+                  onClick={() => setRightCollapsed(true)}
+                >
+                  »
+                </button>
+              </div>
+              <MonitorPanel sessionId={activeTab.sessionId} />
+              <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
+            </>
+          )}
         </aside>
       ) : null}
 

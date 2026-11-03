@@ -1058,6 +1058,43 @@ function TransferPanel({ onClose }) {
   );
 }
 
+/** Flatten a message content array to plain text (text blocks only). */
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((b) => (b && b.type === "text" && typeof b.text === "string" ? b.text : ""))
+    .join("")
+    .trim();
+}
+
+/** Project session events into a small chat transcript. */
+function projectTranscript(entries) {
+  const out = [];
+  for (const entry of entries || []) {
+    const ev = entry && entry.event;
+    if (!ev || !ev.type) continue;
+    const payload = ev.data || ev;
+    if (ev.type === "user/message") {
+      const src = payload.source;
+      const injected = src && src.kind && String(src.kind).startsWith("agent");
+      const text = contentText(payload.content);
+      if (!injected && text) out.push({ role: "user", text });
+    } else if (ev.type === "assistant/message") {
+      const text = contentText((payload.message && payload.message.content) || payload.content);
+      if (text) out.push({ role: "assistant", text });
+    } else if (ev.type === "tool/call") {
+      out.push({ role: "tool", text: String(payload.name || ev.name || "tool") });
+    } else if (ev.type === "turn/end") {
+      const reason = payload.reason || ev.reason || {};
+      if (reason.kind === "error" && reason.error) {
+        out.push({ role: "error", text: String(reason.error.message || reason.error.code || "turn failed") });
+      }
+    }
+  }
+  return out.slice(-40);
+}
+
 function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose }) {
   const tr = (zh, en) => (lang === "en" ? en : zh);
   const [prompt, setPrompt] = useState("");
@@ -1071,6 +1108,7 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
   const [chosenWorkspace, setChosenWorkspace] = useState("");
   const [presetText, setPresetText] = useState("");
   const [lastSentSession, setLastSentSession] = useState("");
+  const [transcript, setTranscript] = useState([]);
   const [notice, setNotice] = useState("");
   const imgFileRef = useRef(null);
 
@@ -1148,6 +1186,84 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
     };
   }, [hostCtx]);
 
+  function resolveTargetSession(sessions) {
+    let target = chosenSession;
+    if (target === "__new__") return "";
+    if (!target && typeof sessions.scopeOf === "function") {
+      try {
+        target = sessions.scopeOf(hostCtx) || "";
+      } catch {
+        target = "";
+      }
+    }
+    if (!target) {
+      try {
+        const snap = sessions.list.getSnapshot();
+        target = (snap && snap.ids && snap.ids[0]) || "";
+      } catch {
+        target = "";
+      }
+    }
+    return target;
+  }
+
+  useEffect(() => {
+    if (!hostCtx || typeof hostCtx.get !== "function") return undefined;
+    let sessions;
+    try {
+      sessions = hostCtx.get("sessions");
+    } catch {
+      sessions = undefined;
+    }
+    if (!sessions || typeof sessions.retain !== "function") return undefined;
+    const target = resolveTargetSession(sessions);
+
+    if (!target) {
+      setTranscript([]);
+      return undefined;
+    }
+    let ref;
+    try {
+      ref = sessions.retain(target, { source: "controllerOperation" });
+    } catch {
+      return undefined;
+    }
+    let cancelled = false;
+    let unsub;
+    (async () => {
+      try {
+        await ref.ready;
+        if (cancelled) return;
+        const source = ref.binding.eventSource;
+        const read = () => {
+          try {
+            const snap = source.getSnapshot();
+            setTranscript(projectTranscript(snap && snap.entries));
+          } catch (e) {
+            /* read failed */
+          }
+        };
+        read();
+        unsub = source.subscribe ? source.subscribe(read) : undefined;
+      } catch (e) {
+        /* retain failed */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try {
+        unsub && unsub();
+      } catch {
+        /* ignore */
+      }
+      try {
+        ref && ref.release();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [hostCtx, chosenSession]);
+
   async function sendToMainSession() {
     const q = String(prompt || "").trim();
     if (!q) return;
@@ -1177,14 +1293,7 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
         return;
       }
     }
-    if (!target && typeof sessions.scopeOf === "function") {
-      try {
-        target = sessions.scopeOf(hostCtx) || "";
-      } catch {
-        target = "";
-      }
-    }
-    if (!target) target = sessionChoices[0] && sessionChoices[0].id;
+    if (!target) target = resolveTargetSession(sessions);
     if (!target) {
       setErr("没有可用的主会话");
       return;
@@ -1201,6 +1310,7 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
       setPrompt("");
       setPendingImage(null);
       setLastSentSession(target);
+      if (created) setChosenSession(target);
       setNotice(created ? "已新建主会话并发送" : "已发送到主会话");
     } catch (e) {
       setErr("发送到主会话失败：" + String((e && e.message) || e));
@@ -1375,7 +1485,30 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose
         </button>
       </div>
       <div style={{ flex: 1, overflow: "auto", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.6 }}>
-        {!answer && !busy && !err ? <div style={S.muted}>向 AI 提问，或使用上面的快捷操作。它会看到当前会话、目录、最近命令和终端输出。</div> : null}
+        {!answer && !busy && !err && !transcript.length ? (
+          <div style={S.muted}>向 AI 提问，或使用上面的快捷操作。它会看到当前会话、目录、最近命令和终端输出。</div>
+        ) : null}
+        {transcript.length ? (
+          <div style={{ marginBottom: answer ? 10 : 0, borderBottom: answer ? `1px solid ${C.border}` : "none", paddingBottom: answer ? 10 : 0 }}>
+            <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("主会话对话（实时同步）", "Main session (live)")}</div>
+            {transcript.map((m, i) => (
+              <div key={i} style={{ marginBottom: 4, fontSize: 12 }}>
+                <span
+                  style={{
+                    marginRight: 6,
+                    color: m.role === "user" ? C.accent : m.role === "assistant" ? C.ok : C.warn,
+                    fontSize: 11,
+                  }}
+                >
+                  {m.role === "user" ? "我" : m.role === "assistant" ? "AI" : "工具"}
+                </span>
+                <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: m.role === "tool" ? C.dim : C.text }}>
+                  {m.text.length > 600 ? m.text.slice(0, 600) + "…" : m.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {busy ? <div style={S.muted}>思考中…</div> : null}
         {err ? <div style={{ color: C.danger }}>{err}</div> : null}
         {notice ? <div style={{ color: C.ok }}>{notice}</div> : null}

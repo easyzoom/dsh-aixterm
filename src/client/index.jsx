@@ -242,7 +242,8 @@ function parentPath(p) {
 
 /* ---------------------------------------------------------------- terminal */
 
-function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, prefs }) {
+function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, onAiAsk, prefs }) {
+  const tr = (zh, en) => ((prefs && prefs.lang) === "en" ? en : zh);
   const hostRef = useRef(null);
   const onCwdRef = useRef(onCwd);
   const onInputRef = useRef(onInput);
@@ -265,6 +266,8 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [menu, setMenu] = useState(null);
+  const [askBox, setAskBox] = useState(null);
+  const [askText, setAskText] = useState("");
   const termRef = useRef(null);
   const fitRef = useRef(null);
 
@@ -723,7 +726,23 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     }
   }
 
+  function submitAsk() {
+    const q = String(askText || "").trim();
+    if (!q && !(askBox && askBox.sel)) return;
+    const withSel =
+      askBox && askBox.sel && !q.includes(askBox.sel.slice(0, 40))
+        ? `${q || "解释这段输出"}\n\n（选中的终端内容：\n${askBox.sel.slice(0, 2000)}\n）`
+        : q;
+    setAskBox(null);
+    setAskText("");
+    if (onAiAsk) onAiAsk(withSel);
+  }
+
   const menuItems = [
+    ["AI 提问", () => {
+      const sel = (termRef.current && termRef.current.getSelection()) || "";
+      setAskBox({ x: menu ? menu.x : 100, y: menu ? menu.y : 100, sel });
+    }],
     ["复制", copySelection],
     ["粘贴", pasteClipboard],
     ["全选", () => termRef.current && termRef.current.selectAll()],
@@ -903,6 +922,57 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
           e.target.value = "";
         }}
       />
+      {askBox ? (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: Math.min(askBox.x + 4, (typeof window !== "undefined" ? window.innerWidth : 1200) - 380),
+            top: askBox.y + 4,
+            zIndex: 80,
+            width: 360,
+            background: C.panel,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            padding: 10,
+            boxShadow: "0 12px 36px rgba(0,0,0,.55)",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+            AI 提问{askBox.sel ? "（已附选中的终端内容）" : ""}
+          </div>
+          <textarea
+            autoFocus
+            value={askText}
+            onChange={(e) => setAskText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setAskBox(null);
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submitAsk();
+            }}
+            placeholder={tr("问什么？（Ctrl+Enter 发送到主会话 AI）", "Ask (Ctrl+Enter to send)")}
+            style={{
+              width: "100%",
+              height: 72,
+              background: C.bg,
+              color: C.text,
+              border: `1px solid ${C.border}`,
+              borderRadius: 6,
+              padding: 8,
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+          {askBox.sel ? (
+            <div style={{ ...S.muted, fontSize: 10, marginTop: 4, maxHeight: 34, overflow: "hidden" }}>
+              {tr("选中：", "Sel: ")}{askBox.sel.slice(0, 90)}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 8 }}>
+            <button style={S.btn} onClick={() => setAskBox(null)}>取消</button>
+            <button style={S.btnPrimary} onClick={submitAsk}>{tr("发送到 AI", "Send")}</button>
+          </div>
+        </div>
+      ) : null}
       {menu ? (
         <div
           onClick={(e) => e.stopPropagation()}
@@ -1095,7 +1165,7 @@ function projectTranscript(entries) {
   return out.slice(-40);
 }
 
-function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onClose }) {
+function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, onInitialConsumed, onClose }) {
   const tr = (zh, en) => (lang === "en" ? en : zh);
   const [prompt, setPrompt] = useState("");
   const [err, setErr] = useState(null);
@@ -1295,8 +1365,16 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onClose }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [transcript]);
 
-  async function send() {
-    const q = String(prompt || "").trim();
+  useEffect(() => {
+    if (initialPrompt) {
+      send(initialPrompt);
+      if (onInitialConsumed) onInitialConsumed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
+
+  async function send(textOverride) {
+    const q = String(textOverride || prompt || "").trim();
     if (!q && !pendingImage) return;
     setErr(null);
     setNotice("");
@@ -2066,6 +2144,7 @@ function AixtermApp({ hostCtx }) {
   const ioFileRef = useRef(null);
   const [serialPorts, setSerialPorts] = useState([]);
   const [showAi, setShowAi] = useState(false);
+  const [aiInitialAsk, setAiInitialAsk] = useState("");
   const [termSettings, setTermSettings] = useState({ saveScrollback: true, scrollbackDir: "", bufferLines: 2000, dataDir: "" });
   const [termSettingsMsg, setTermSettingsMsg] = useState(null);
   const recRef = useRef(null);
@@ -2389,6 +2468,11 @@ function AixtermApp({ hostCtx }) {
     for (const id of targets) {
       postJson("/term/input", { terminalId: id, data }).catch(() => {});
     }
+  }
+
+  function handleAiAsk(question) {
+    setAiInitialAsk(question);
+    setShowAi(true);
   }
 
   function cycleLayout() {
@@ -2940,6 +3024,7 @@ function AixtermApp({ hostCtx }) {
                   sessionId={t.sessionId || ""}
                   active={t.id === activeId}
                   visible={t.id === activeId}
+                  onAiAsk={handleAiAsk}
                   prefs={prefs}
                   onInput={(data) => handleInput(t.id, data)}
                   onCwd={(p) => setCwdByTerminal((prev) => (prev[t.id] === p ? prev : { ...prev, [t.id]: p }))}
@@ -2953,6 +3038,7 @@ function AixtermApp({ hostCtx }) {
               sessionId={paneTab.sessionId || ""}
               active={false}
               visible={true}
+              onAiAsk={handleAiAsk}
               prefs={prefs}
               onInput={(data) => handleInput(paneTab.id, data)}
               onCwd={(p) => setCwdByTerminal((prev) => (prev[paneTab.id] === p ? prev : { ...prev, [paneTab.id]: p }))}
@@ -3206,6 +3292,8 @@ function AixtermApp({ hostCtx }) {
             sessionId={activeTab.sessionId}
             terminalId={activeTab.id}
             cwd={cwdByTerminal[activeTab.id]}
+            initialPrompt={aiInitialAsk}
+            onInitialConsumed={() => setAiInitialAsk("")}
             onClose={() => setShowAi(false)}
           />
         ) : null}

@@ -1058,13 +1058,107 @@ function TransferPanel({ onClose }) {
   );
 }
 
-function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
+function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, onExecute, onClose }) {
+  const tr = (zh, en) => (lang === "en" ? en : zh);
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [pendingImage, setPendingImage] = useState(null);
+  const [sessionChoices, setSessionChoices] = useState([]);
+  const [chosenSession, setChosenSession] = useState("");
+  const [notice, setNotice] = useState("");
   const imgFileRef = useRef(null);
+
+  useEffect(() => {
+    let sessions;
+    try {
+      sessions = hostCtx && typeof hostCtx.get === "function" ? hostCtx.get("sessions") : undefined;
+    } catch {
+      sessions = undefined;
+    }
+    if (!sessions || !sessions.list) return undefined;
+    const read = () => {
+      try {
+        const snap = sessions.list.getSnapshot();
+        const ids = (snap && snap.ids) || [];
+        const byId = (snap && snap.byId) || {};
+        setSessionChoices(
+          ids.map((id) => ({
+            id,
+            title: (byId[id] && (byId[id].title || byId[id].name)) || String(id).slice(0, 8),
+          }))
+        );
+      } catch {
+        /* snapshot unavailable */
+      }
+    };
+    read();
+    let unsub;
+    try {
+      unsub = sessions.list.subscribe ? sessions.list.subscribe(read) : undefined;
+    } catch {
+      unsub = undefined;
+    }
+    return () => {
+      try {
+        unsub && unsub();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [hostCtx]);
+
+  async function sendToMainSession() {
+    const q = String(prompt || "").trim();
+    if (!q) return;
+    setErr(null);
+    setNotice("");
+    let sessions;
+    try {
+      sessions = hostCtx && typeof hostCtx.get === "function" ? hostCtx.get("sessions") : undefined;
+    } catch {
+      sessions = undefined;
+    }
+    if (!sessions || typeof sessions.retain !== "function") {
+      setErr("主会话服务不可用");
+      return;
+    }
+    let target = chosenSession;
+    if (!target && typeof sessions.scopeOf === "function") {
+      try {
+        target = sessions.scopeOf(hostCtx) || "";
+      } catch {
+        target = "";
+      }
+    }
+    if (!target) target = sessionChoices[0] && sessionChoices[0].id;
+    if (!target) {
+      setErr("没有可用的主会话");
+      return;
+    }
+    let ref;
+    try {
+      ref = sessions.retain(target, { source: "controllerOperation" });
+      await ref.ready;
+      const parts = [{ type: "text", text: q }];
+      if (pendingImage) {
+        parts.push({ type: "image", mediaType: pendingImage.type, data: pendingImage.b64, name: pendingImage.name });
+      }
+      await ref.binding.session.prompt(parts, "queue");
+      setPrompt("");
+      setPendingImage(null);
+      setNotice("已发送到主会话");
+    } catch (e) {
+      setErr("发送到主会话失败：" + String((e && e.message) || e));
+    } finally {
+      try {
+        ref && ref.release();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   function readImage(file) {
     if (!file) return;
@@ -1156,6 +1250,21 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
         <span style={{ fontWeight: 600, fontSize: 13 }}>AI 助手</span>
         <button style={{ ...S.btn, padding: "1px 8px", fontSize: 11 }} onClick={onClose}>✕</button>
       </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+        <span style={S.muted}>{tr("主会话", "Main session")}</span>
+        <select
+          style={{ ...S.input, flex: 1, padding: "2px 6px", fontSize: 11 }}
+          value={chosenSession}
+          onChange={(e) => setChosenSession(e.target.value)}
+        >
+          <option value="">{tr("当前 / 默认会话", "Current / default")}</option>
+          {sessionChoices.map((sc) => (
+            <option key={sc.id} value={sc.id}>
+              {sc.title}
+            </option>
+          ))}
+        </select>
+      </div>
       <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
         <button style={{ ...S.btn, fontSize: 11 }} onClick={() => ask("解释终端里最近输出中的错误，并给出修复建议")} disabled={busy}>
           诊断错误
@@ -1171,6 +1280,7 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
         {!answer && !busy && !err ? <div style={S.muted}>向 AI 提问，或使用上面的快捷操作。它会看到当前会话、目录、最近命令和终端输出。</div> : null}
         {busy ? <div style={S.muted}>思考中…</div> : null}
         {err ? <div style={{ color: C.danger }}>{err}</div> : null}
+        {notice ? <div style={{ color: C.ok }}>{notice}</div> : null}
         {parts.map((part, i) =>
           part.type === "code" ? (
             <div key={i} style={{ margin: "8px 0", border: `1px solid ${C.border}`, borderRadius: 6, overflow: "hidden" }}>
@@ -1215,7 +1325,15 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
           placeholder="问 AI，例如：这个报错怎么解决？（可粘贴截图）"
           disabled={busy}
         />
-        <button style={S.btnPrimary} onClick={() => ask()} disabled={busy}>发送</button>
+        <button style={S.btnPrimary} onClick={() => ask()} disabled={busy}>{tr("问 AI", "Ask AI")}</button>
+        <button
+          style={{ ...S.btn, whiteSpace: "nowrap" }}
+          onClick={sendToMainSession}
+          disabled={busy}
+          title={tr("把问题（和图片）发送到 dsh 主会话，由主 agent 处理", "Send the question (and image) to the main dsh session")}
+        >
+          → {tr("主会话", "Session")}
+        </button>
         <input
           ref={imgFileRef}
           type="file"
@@ -1722,7 +1840,7 @@ function SftpPanel({ sessionId, followPath }) {
 
 /* --------------------------------------------------------------------- app */
 
-function AixtermApp() {
+function AixtermApp({ hostCtx }) {
   const [sessions, setSessions] = useState([]);
   const [tabs, setTabs] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -2858,6 +2976,8 @@ function AixtermApp() {
 
         {showAi && activeTab ? (
           <AiPanel
+            hostCtx={hostCtx}
+            lang={prefs.lang}
             sessionId={activeTab.sessionId}
             terminalId={activeTab.id}
             cwd={cwdByTerminal[activeTab.id]}
@@ -3743,7 +3863,8 @@ export function apply(ctx) {
       disposers.push(
         slots.inject("main", () => {
           try {
-            return slots.register({ name: "main", key: "dsh-aixterm" }, AixtermApp);
+            const AppWithCtx = (props) => <AixtermApp {...props} hostCtx={ctx} />;
+            return slots.register({ name: "main", key: "dsh-aixterm" }, AppWithCtx);
           } catch (e) {
             console.warn("[dsh-aixterm] main page failed", e);
             return undefined;

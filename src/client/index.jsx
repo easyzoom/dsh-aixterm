@@ -1063,6 +1063,37 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [pendingImage, setPendingImage] = useState(null);
+  const imgFileRef = useRef(null);
+
+  function readImage(file) {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setErr("图片超过 8MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      const b64 = dataUrl.split(",")[1] || "";
+      setPendingImage({ b64, type: file.type || "image/png", name: file.name || "pasted.png", dataUrl });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function onPaste(e) {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type && it.type.startsWith("image/")) {
+        const file = it.getAsFile && it.getAsFile();
+        if (file) {
+          e.preventDefault();
+          readImage(file);
+        }
+      }
+    }
+  }
 
   async function ask(text) {
     const q = String(text || prompt || "").trim();
@@ -1071,9 +1102,19 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
     setErr(null);
     setAnswer("");
     try {
-      const d = await postJson("/ai/ask", { sessionId, terminalId, cwd, prompt: q });
-      if (d && d.ok) setAnswer(d.answer || "");
-      else setErr((d && d.error) || "AI 调用失败");
+      const d = await postJson("/ai/ask", {
+        sessionId,
+        terminalId,
+        cwd,
+        prompt: q,
+        ...(pendingImage ? { imageB64: pendingImage.b64, imageType: pendingImage.type, imageName: pendingImage.name } : {}),
+      });
+      if (d && d.ok) {
+        setAnswer(d.answer || "");
+        setPendingImage(null);
+      } else {
+        setErr((d && d.error) || "AI 调用失败");
+      }
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -1150,7 +1191,19 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
           )
         )}
       </div>
+      {pendingImage ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 0" }}>
+          <img src={pendingImage.dataUrl} alt="" style={{ height: 48, borderRadius: 4, border: `1px solid ${C.border}` }} />
+          <span style={{ ...S.muted, fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {pendingImage.name}（将随问题发送给视觉模型）
+          </span>
+          <button style={{ ...S.btn, padding: "1px 8px" }} onClick={() => setPendingImage(null)}>✕</button>
+        </div>
+      ) : null}
       <div style={{ display: "flex", gap: 6, padding: 10, borderTop: `1px solid ${C.border}` }}>
+        <button style={{ ...S.btn, padding: "4px 8px" }} title="附加图片（或直接 Ctrl+V 粘贴截图）" onClick={() => imgFileRef.current && imgFileRef.current.click()} disabled={busy}>
+          📎
+        </button>
         <input
           style={{ ...S.input, flex: 1 }}
           value={prompt}
@@ -1158,10 +1211,21 @@ function AiPanel({ sessionId, terminalId, cwd, onExecute, onClose }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) ask();
           }}
-          placeholder="问 AI，例如：这个报错怎么解决？"
+          onPaste={onPaste}
+          placeholder="问 AI，例如：这个报错怎么解决？（可粘贴截图）"
           disabled={busy}
         />
         <button style={S.btnPrimary} onClick={() => ask()} disabled={busy}>发送</button>
+        <input
+          ref={imgFileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            readImage(e.target.files && e.target.files[0]);
+            e.target.value = "";
+          }}
+        />
       </div>
     </div>
   );

@@ -3060,7 +3060,9 @@ function AixtermApp({ hostCtx }) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  // Group sessions by their group field (filtered by the search box).
+  // Group sessions: connected (live) sessions go into a leading "active" group;
+  // the rest keep their own group (default 默认).
+  const ACTIVE_GROUP = "__active__";
   const groups = [];
   const ql = sessionQuery.trim().toLowerCase();
   for (const s of sessions) {
@@ -3068,7 +3070,8 @@ function AixtermApp({ hostCtx }) {
       const hay = `${s.name || ""} ${s.host || ""} ${s.user || ""} ${s.group || ""}`.toLowerCase();
       if (!hay.includes(ql)) continue;
     }
-    const g = s.group || "默认";
+    const connected = tabs.some((t) => t.sessionId === s.id);
+    const g = connected ? ACTIVE_GROUP : s.group || "默认";
     let bucket = groups.find((x) => x.name === g);
     if (!bucket) {
       bucket = { name: g, items: [] };
@@ -3076,6 +3079,7 @@ function AixtermApp({ hostCtx }) {
     }
     bucket.items.push(s);
   }
+  groups.sort((a, b) => (a.name === ACTIVE_GROUP ? -1 : b.name === ACTIVE_GROUP ? 1 : 0));
 
   function renderPane(index) {
     const isMain = index === 0;
@@ -3239,7 +3243,9 @@ function AixtermApp({ hostCtx }) {
           ) : (
             groups.map((g) => (
               <div key={g.name} style={{ marginBottom: 8 }}>
-                <div style={{ ...S.muted, padding: "6px 6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6 }}>{g.name}</div>
+                <div style={{ ...S.muted, padding: "6px 6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  {g.name === ACTIVE_GROUP ? tr("活跃", "Active") : g.name}
+                </div>
                 {g.items.map((s) => {
                   const isActive = activeTab && activeTab.sessionId === s.id;
                   return (
@@ -3278,15 +3284,28 @@ function AixtermApp({ hostCtx }) {
                           </span>
                         );
                       })()}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
-                        <div style={{ fontSize: 11, color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {s.kind === "serial"
-                            ? `${(s.serial && s.serial.path) || "串口"} @ ${(s.serial && s.serial.baudRate) || ""}`
-                            : s.kind === "telnet"
-                              ? `telnet ${s.host}:${s.port}`
-                              : `${s.user}@${s.host}:${s.port}`}
-                        </div>
+                      <div
+                        style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={(() => {
+                          const conn = tabs.some((t) => t.sessionId === s.id);
+                          const detail =
+                            s.kind === "serial"
+                              ? `${(s.serial && s.serial.path) || "串口"} @ ${(s.serial && s.serial.baudRate) || ""}`
+                              : s.kind === "telnet"
+                                ? `telnet ${s.host}:${s.port}`
+                                : `${s.user}@${s.host}:${s.port}`;
+                          const extra = [
+                            tr("名称", "Name") + "：" + s.name,
+                            detail,
+                            (s.group ? tr("分组", "Group") + "：" + s.group : ""),
+                            (conn ? tr("已连接", "Connected") : tr("未连接", "Not connected")),
+                          ]
+                            .filter(Boolean)
+                            .join("\n");
+                          return extra;
+                        })()}
+                      >
+                        {s.name}
                       </div>
                     </div>
                   );

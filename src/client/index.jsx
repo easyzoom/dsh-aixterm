@@ -1050,7 +1050,7 @@ const RIGHT_TOOLS = [
   { id: "files", icon: "📁", label: "文件 (SFTP)" },
   { id: "monitor", icon: "📊", label: "资源监控" },
   { id: "network", icon: "🌐", label: "网络工具" },
-  { id: "system", icon: "🛠", label: "系统工具" },
+  { id: "system", icon: "🧰", label: "系统工具" },
   { id: "process", icon: "📋", label: "进程管理" },
   { id: "logs", icon: "📜", label: "日志查看" },
   { id: "forward", icon: "🔁", label: "端口转发" },
@@ -3626,7 +3626,7 @@ function AixtermApp({ hostCtx }) {
                   }}
                   style={{
                     border: "none",
-                    background: selected ? C.accentBg : "transparent",
+                    background: selected ? C.accentBg : "rgba(255,255,255,0.07)",
                     borderRadius: 6,
                     cursor: "pointer",
                     fontSize: 16,

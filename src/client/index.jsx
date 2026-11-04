@@ -268,7 +268,15 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   const [menu, setMenu] = useState(null);
   const [askBox, setAskBox] = useState(null);
   const [askText, setAskText] = useState("");
+  const [copyNotice, setCopyNotice] = useState("");
   const askRef = useRef(null);
+  const copyTimerRef = useRef(null);
+
+  function showNotice(text) {
+    setCopyNotice(text);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyNotice(""), 2000);
+  }
   const termRef = useRef(null);
   const fitRef = useRef(null);
 
@@ -345,6 +353,14 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     }
 
     term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.ctrlKey && e.shiftKey && String(e.key).toLowerCase() === "c") {
+        copySelection();
+        return false;
+      }
+      if (e.type === "keydown" && e.ctrlKey && e.shiftKey && String(e.key).toLowerCase() === "v") {
+        pasteClipboard();
+        return false;
+      }
       if (e.type === "keydown" && e.ctrlKey && !e.shiftKey && String(e.key).toLowerCase() === "f") {
         setFindOpen(true);
         return false;
@@ -696,18 +712,28 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   function copySelection() {
     try {
       const sel = termRef.current && termRef.current.getSelection();
-      if (sel) navigator.clipboard && navigator.clipboard.writeText(sel).catch(() => {});
+      if (sel) {
+        navigator.clipboard
+          .writeText(sel)
+          .then(() => showNotice(tr("已复制", "Copied")))
+          .catch(() => showNotice(tr("复制失败（剪贴板被拒绝）", "Copy failed (clipboard denied)")));
+      } else {
+        showNotice(tr("未选中内容", "Nothing selected"));
+      }
     } catch {
-      /* clipboard denied */
+      showNotice(tr("复制失败", "Copy failed"));
     }
   }
 
   async function pasteClipboard() {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) postJson("/term/input", { terminalId, data: text }).catch(() => {});
+      if (text) {
+        postJson("/term/input", { terminalId, data: text }).catch(() => {});
+        showNotice(tr("已粘贴", "Pasted"));
+      }
     } catch {
-      /* clipboard denied */
+      showNotice(tr("粘贴失败（剪贴板被拒绝）", "Paste failed (clipboard denied)"));
     }
   }
 
@@ -826,6 +852,24 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         }}
         style={{ position: "absolute", top: 0, bottom: 0, right: 0, left: gutterWidth, padding: "6px 8px", overflow: "hidden" }}
       />
+      {copyNotice ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: C.panel2,
+            border: `1px solid ${C.border}`,
+            borderRadius: 4,
+            padding: "3px 10px",
+            fontSize: 11,
+            zIndex: 6,
+          }}
+        >
+          {copyNotice}
+        </div>
+      ) : null}
       {suggestion ? (
         <div
           style={{

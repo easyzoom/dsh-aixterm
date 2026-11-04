@@ -23,7 +23,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Secrets encrypted at rest** — passwords / key passphrases are AES-256-GCM encrypted in the data dir.
 - **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`), with jump hosts and shared connections.
 - **Full SFTP management** — mkdir / rename / delete / chmod, inline text editor, and a panel that follows the terminal's cwd.
-- **Tool panels** — the right rail is an icon tab bar: Files (SFTP), Resource monitor, Network tools and System tools. The latter two are placeholders with their roadmap in `docs/tools-roadmap.md`.
+- **Tool panels** — the right rail is an icon tab bar (Files, Resource monitor, Network/System/Process/Logs/Forwarding/Diagnostics). Any tool can be **popped out** as a draggable floating window and pinned over the terminal, or closed; the active icon gets a clear highlight bar.
 - **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
 - **Collapsible side panels** — the session list (left) and the monitor/SFTP column (right) collapse to a slim icon strip and restore with one click, remembered across reloads.
 - **Split view** — single, two panes side by side, two panes stacked, or a 2×2 quad grid; the tab-bar button cycles the layouts and every extra pane picks its terminal from a dropdown.

@@ -1083,6 +1083,59 @@ function ToolPlaceholder({ tool }) {
   );
 }
 
+function FloatingTool({ tool, sessionId, index, onClose }) {
+  const [pos, setPos] = useState(() => ({ x: 60 + index * 24, y: 60 + index * 24 }));
+  const dragRef = useRef(null);
+  const label = (RIGHT_TOOLS.find((t) => t.id === tool) || {}).label || tool;
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    const move = (ev) => setPos({ x: ev.clientX - dragRef.current.dx, y: ev.clientY - dragRef.current.dy });
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: pos.x,
+        top: pos.y,
+        width: 300,
+        maxHeight: 520,
+        zIndex: 90,
+        background: C.panel,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        boxShadow: "0 12px 40px rgba(0,0,0,.5)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        onMouseDown={onMouseDown}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, cursor: "move", userSelect: "none", fontSize: 12, fontWeight: 600 }}
+      >
+        <span>{label}</span>
+        <button style={{ border: "none", background: "transparent", color: C.dim, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }} onClick={onClose} title="关闭">✕</button>
+      </div>
+      <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+        {tool === "monitor" ? (
+          <MonitorPanel sessionId={sessionId} />
+        ) : tool === "files" ? (
+          <SftpPanel sessionId={sessionId} />
+        ) : (
+          <ToolPlaceholder tool={tool} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TransferPanel({ onClose }) {
   const [list, setList] = useState([]);
   useEffect(() => {
@@ -2229,6 +2282,17 @@ function AixtermApp({ hostCtx }) {
     }
   });
   const [rightTool, setRightTool] = useState("files");
+  const [pinnedTools, setPinnedTools] = useState([]);
+
+  function pinCurrentTool() {
+    const id = rightTool;
+    if (pinnedTools.some((p) => p.id === id)) return;
+    setPinnedTools((prev) => [...prev, { id, sessionId: (activeTab && activeTab.sessionId) || "" }]);
+  }
+
+  function unpinTool(id) {
+    setPinnedTools((prev) => prev.filter((p) => p.id !== id));
+  }
   const [rightCollapsed, setRightCollapsed] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("aixterm.layout") || "{}").right === true;
@@ -3529,24 +3593,37 @@ function AixtermApp({ hostCtx }) {
                 >
                   »
                 </button>
-                {RIGHT_TOOLS.map((t) => (
-                  <button
-                    key={t.id}
-                    title={t.label}
-                    onClick={() => setRightTool(t.id)}
-                    style={{
-                      border: "none",
-                      background: rightTool === t.id ? C.panel2 : "transparent",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      fontSize: 15,
-                      padding: "6px 4px",
-                      margin: "2px 0",
-                    }}
-                  >
-                    {t.icon}
-                  </button>
-                ))}
+                {RIGHT_TOOLS.map((t) => {
+                  const selected = rightTool === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      title={t.label}
+                      onClick={() => setRightTool(t.id)}
+                      style={{
+                        border: "none",
+                        background: selected ? C.accentBg : "transparent",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontSize: 16,
+                        padding: "6px 4px",
+                        margin: "2px 0",
+                        position: "relative",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {selected ? <span style={{ position: "absolute", left: -1, top: 5, bottom: 5, width: 3, borderRadius: 2, background: C.accent }} /> : null}
+                      {t.icon}
+                    </button>
+                  );
+                })}
+                <button
+                  style={{ ...S.btn, marginTop: 8, padding: "1px 5px", fontSize: 11 }}
+                  title={tr("把当前工具弹出为浮动窗口", "Pop the current tool out as a floating window")}
+                  onClick={pinCurrentTool}
+                >
+                  ⧉
+                </button>
               </div>
               <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
                 {rightTool === "monitor" ? (
@@ -3618,6 +3695,11 @@ function AixtermApp({ hostCtx }) {
           ))}
         </div>
       ) : null}
+
+      {/* floating pinned tools */}
+      {pinnedTools.map((p, i) => (
+        <FloatingTool key={p.id} tool={p.id} sessionId={p.sessionId} index={i} onClose={() => unpinTool(p.id)} />
+      ))}
 
       {/* lock overlay */}
       {lockInfo.locked ? (

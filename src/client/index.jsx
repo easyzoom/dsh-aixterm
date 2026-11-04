@@ -1046,6 +1046,35 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
 
 /* ------------------------------------------------------------------- sftp */
 
+const RIGHT_TOOLS = [
+  { id: "files", icon: "📁", label: "文件 (SFTP)" },
+  { id: "monitor", icon: "📊", label: "资源监控" },
+  { id: "network", icon: "🌐", label: "网络工具" },
+  { id: "system", icon: "🛠", label: "系统工具" },
+];
+
+const TOOL_PLANS = {
+  network: ["ping / traceroute", "端口连通检测", "网络接口详情", "路由表", "DNS 解析", "端口扫描"],
+  system: ["进程列表 / 排序", "终止进程（审批）", "服务管理", "软件包管理", "系统日志", "磁盘与挂载"],
+};
+
+function ToolPlaceholder({ tool }) {
+  const tr = (zh, en) => zh;
+  const title = (RIGHT_TOOLS.find((t) => t.id === tool) || {}).label || tool;
+  const items = TOOL_PLANS[tool] || [];
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: 12, fontSize: 12 }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>{title}</div>
+      <div style={S.muted}>{tr("规划中，后续填充（见 docs/tools-roadmap.md）：", "Planned (see docs/tools-roadmap.md):")}</div>
+      <ul style={{ paddingLeft: 18, margin: "8px 0 0" }}>
+        {items.map((x) => (
+          <li key={x} style={{ margin: "3px 0", color: C.dim }}>{x}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function TransferPanel({ onClose }) {
   const [list, setList] = useState([]);
   useEffect(() => {
@@ -2191,6 +2220,7 @@ function AixtermApp({ hostCtx }) {
       return false;
     }
   });
+  const [rightTool, setRightTool] = useState("files");
   const [rightCollapsed, setRightCollapsed] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("aixterm.layout") || "{}").right === true;
@@ -3476,25 +3506,50 @@ function AixtermApp({ hostCtx }) {
           {rightCollapsed ? (
             <button
               style={{ ...S.btn, margin: "10px auto", padding: "4px 6px", fontSize: 12 }}
-              title={tr("展开监控与文件", "Expand monitor & files")}
+              title={tr("展开工具面板", "Expand tools")}
               onClick={() => setRightCollapsed(false)}
             >
               «
             </button>
           ) : (
-            <>
-              <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 6px 0" }}>
+            <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+              <div style={{ width: 36, flex: "0 0 36px", borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 4 }}>
                 <button
-                  style={{ ...S.btn, padding: "1px 6px", fontSize: 11 }}
-                  title={tr("收起右侧面板", "Collapse right panel")}
+                  style={{ ...S.btn, margin: "0 0 8px", padding: "1px 5px", fontSize: 11 }}
+                  title={tr("收起工具面板", "Collapse tools")}
                   onClick={() => setRightCollapsed(true)}
                 >
                   »
                 </button>
+                {RIGHT_TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    title={t.label}
+                    onClick={() => setRightTool(t.id)}
+                    style={{
+                      border: "none",
+                      background: rightTool === t.id ? C.panel2 : "transparent",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontSize: 15,
+                      padding: "6px 4px",
+                      margin: "2px 0",
+                    }}
+                  >
+                    {t.icon}
+                  </button>
+                ))}
               </div>
-              <MonitorPanel sessionId={activeTab.sessionId} />
-              <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
-            </>
+              <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                {rightTool === "monitor" ? (
+                  <MonitorPanel sessionId={activeTab.sessionId} />
+                ) : rightTool === "files" ? (
+                  <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
+                ) : (
+                  <ToolPlaceholder tool={rightTool} />
+                )}
+              </div>
+            </div>
           )}
         </aside>
       ) : null}

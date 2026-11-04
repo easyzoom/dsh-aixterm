@@ -2212,6 +2212,19 @@ function AixtermApp({ hostCtx }) {
   const [aiInitialAsk, setAiInitialAsk] = useState("");
   const [aiAskTarget, setAiAskTarget] = useState("");
   const [aiSessionOptions, setAiSessionOptions] = useState([]);
+  const [modelProviders, setModelProviders] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(PREFIX + "/models");
+        const d = await r.json();
+        if (d && d.ok) setModelProviders(d.providers || []);
+      } catch {
+        /* models unavailable */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!hostCtx || typeof hostCtx.get !== "function") return undefined;
@@ -3936,41 +3949,48 @@ function AixtermApp({ hostCtx }) {
                     />
                     <span>{tr("使用指定模型（每次提问前切换目标会话的模型）", "Use a specific model (switches the target session before each question)")}</span>
                   </label>
-                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                    <input
-                      style={{ ...S.input, flex: 1 }}
-                      value={prefs.aiProvider || ""}
-                      onChange={(e) => updatePrefs({ aiProvider: e.target.value })}
-                      placeholder={tr("provider，如 example-provider", "provider, e.g. example-provider")}
-                      disabled={prefs.aiModelPolicy !== "override"}
-                    />
-                    <input
-                      style={{ ...S.input, flex: 1 }}
-                      value={prefs.aiModel || ""}
-                      onChange={(e) => updatePrefs({ aiModel: e.target.value })}
-                      placeholder={tr("model，如 example-model", "model, e.g. example-model")}
-                      disabled={prefs.aiModelPolicy !== "override"}
-                    />
-                  </div>
-                  <input
-                    style={{ ...S.input, marginTop: 6 }}
-                    value={prefs.aiEffort || ""}
-                    onChange={(e) => updatePrefs({ aiEffort: e.target.value })}
-                    placeholder={tr("推理强度（可选，如 high；留空默认）", "Reasoning effort (optional, e.g. high)")}
-                    disabled={prefs.aiModelPolicy !== "override"}
-                  />
-                  <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
-                    {tr(
-                      "指定模型会通过 selectModel 应用到目标会话，该会话在主界面显示的模型也会随之改变。",
-                      "The specific model is applied to the target session via selectModel, so the model shown in the main UI changes too."
-                    )}
-                  </div>
-                  <div style={{ ...S.muted, marginTop: 4, fontSize: 11 }}>
-                    {tr(
-                      "可用模型见主界面模型选择器；错误示例：provider 写 example-provider，model 写 example-model。",
-                      "See the main UI model picker for valid names, e.g. example-provider / example-model."
-                    )}
-                  </div>
+                  {prefs.aiModelPolicy === "override" ? (
+                    <>
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                        <select
+                          style={{ ...S.input, flex: 1 }}
+                          value={prefs.aiProvider || ""}
+                          onChange={(e) => updatePrefs({ aiProvider: e.target.value, aiModel: "" })}
+                        >
+                          <option value="">{tr("选择 provider", "Choose provider")}</option>
+                          {modelProviders.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          style={{ ...S.input, flex: 1 }}
+                          value={prefs.aiModel || ""}
+                          onChange={(e) => updatePrefs({ aiModel: e.target.value })}
+                        >
+                          <option value="">{tr("选择 model", "Choose model")}</option>
+                          {((modelProviders.find((p) => p.id === prefs.aiProvider) || {}).models || []).map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <input
+                        style={{ ...S.input, marginTop: 6 }}
+                        value={prefs.aiEffort || ""}
+                        onChange={(e) => updatePrefs({ aiEffort: e.target.value })}
+                        placeholder={tr("推理强度（可选，如 high；留空默认）", "Reasoning effort (optional, e.g. high)")}
+                      />
+                      <div style={{ ...S.muted, marginTop: 6, fontSize: 11 }}>
+                        {tr(
+                          "指定模型会通过模型目录服务应用到目标会话，该会话在主界面显示的模型也会随之改变。",
+                          "The specific model is applied to the target session, so the model shown in the main UI changes too."
+                        )}
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
 

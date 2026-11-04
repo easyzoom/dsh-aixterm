@@ -50,7 +50,8 @@ Icon rail: Files · Monitor · Network · System · Processes · Logs · Forward
 ### 🧩 Terminal experience
 
 - Five colour themes, font / size / line height
-- **Keyword highlighting** (custom patterns + colours)
+- **Colorful SSH banners by default**: title, target and status colors; disable in Settings → Display for new terminals.
+- **Built-in keyword colors by default**: errors red, warnings yellow, success green and info blue; independently disable in Settings → Highlighting or add custom rules. Original remote colors take priority; alternate-screen apps and output/log bytes remain unchanged.
 - **Line-number / timestamp gutter**
 - **Fuzzy command suggestions** (auto-hidden in full-screen programs)
 - **Macro record/replay**, **ZMODEM**, **X11 forwarding**

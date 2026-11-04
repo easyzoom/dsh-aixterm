@@ -17,6 +17,9 @@ import { SearchAddon } from "@xterm/addon-search";
 import Zmodem from "zmodem.js/src/zmodem_browser.js";
 import xtermCss from "@xterm/xterm/css/xterm.css";
 import DiagnosticsPanel from "./DiagnosticsPanel.jsx";
+import { readTerminalPromptCwd, resolveFollowPath } from "./terminal-cwd.js";
+import { createTerminalGutterTracker } from "./terminal-gutter.js";
+import { createTerminalHighlighter } from "./terminal-highlights.js";
 
 const PREFIX = "/dsh-aixterm";
 const CSS_ID = "dsh-aixterm-xterm-css";
@@ -131,33 +134,6 @@ const FONT_CHOICES = [
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
-function hexToRgb(hex) {
-  const n = parseInt(String(hex).slice(1), 16);
-  return `${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`;
-}
-
-/** Build a text transformer that colors keyword matches (ANSI apart). */
-function buildHighlighter(rules) {
-  const valid = (rules || []).filter((r) => r && String(r.pattern || "").trim() && HEX_RE.test(String(r.color || "")));
-  if (!valid.length) return null;
-  const escapeRe = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(valid.map((r) => escapeRe(r.pattern.trim())).join("|"), "gi");
-  const colorOf = (match) => {
-    const lower = match.toLowerCase();
-    const hit = valid.find((r) => r.pattern.trim().toLowerCase() === lower);
-    return (hit || valid[0]).color;
-  };
-  return (text) => {
-    const parts = String(text).split(/(\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07)/);
-    return parts
-      .map((part, i) => {
-        if (i % 2 === 1) return part;
-        return part.replace(re, (m) => `\x1b[38;2;${hexToRgb(colorOf(m))}m${m}\x1b[39m`);
-      })
-      .join("");
-  };
-}
-
 const EMPTY_FORM = { kind: "ssh", name: "", host: "", port: "22", user: "", authKind: "password", password: "", keyPath: "", keyId: "", group: "", proxyJump: "", credentialEnv: "", x11: false, serialPath: "", baudRate: "115200", dataBits: "8", stopBits: "1", parity: "none" };
 
 const S = {
@@ -241,6 +217,99 @@ function parentPath(p) {
   return t.slice(0, i) || "/";
 }
 
+function AboutPanel({ version, repo, lang }) {
+  const tr = (zh, en) => (lang === "en" ? en : zh);
+  const projectUrl = /^https?:\/\//.test(repo || "") ? String(repo).replace(/\.git$/, "") : "https://github.com/easyzoom/dsh-aixterm";
+  const cards = [
+    ["⌁", tr("多协议工作台", "Multi-protocol workspace"), "SSH · SFTP · Serial · Telnet"],
+    ["✦", tr("人机共享上下文", "Human + AI context"), tr("终端、目录与诊断证据", "Terminal, cwd and diagnostics")],
+    ["◇", tr("跨平台宿主", "Cross-platform host"), "Windows · Linux · macOS"],
+  ];
+
+  return (
+    <div style={{ fontSize: 12, paddingBottom: 2 }}>
+      <div
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          minHeight: 168,
+          padding: "22px 22px 20px",
+          border: "1px solid rgba(88,166,255,0.28)",
+          borderRadius: 14,
+          background: "linear-gradient(135deg, rgba(31,111,235,0.22), rgba(88,166,255,0.06) 48%, rgba(188,140,255,0.12))",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 38px rgba(0,0,0,0.22)",
+        }}
+      >
+        <div style={{ position: "absolute", width: 190, height: 190, borderRadius: "50%", right: -58, top: -94, background: "radial-gradient(circle, rgba(88,166,255,0.28), transparent 68%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", width: 140, height: 140, borderRadius: "50%", left: 110, bottom: -120, background: "radial-gradient(circle, rgba(188,140,255,0.22), transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "relative", display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <div
+            aria-hidden="true"
+            style={{
+              width: 58,
+              height: 58,
+              flex: "0 0 58px",
+              display: "grid",
+              placeItems: "center",
+              borderRadius: 14,
+              border: "1px solid rgba(121,192,255,0.48)",
+              background: "linear-gradient(145deg, #2380e8, #7447c8)",
+              color: "#fff",
+              fontFamily: mono,
+              fontSize: 20,
+              fontWeight: 800,
+              letterSpacing: -2,
+              boxShadow: "0 10px 26px rgba(31,111,235,0.35), inset 0 1px 0 rgba(255,255,255,0.25)",
+            }}
+          >
+            {">_"}
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: 22, lineHeight: 1.15, fontWeight: 750, letterSpacing: -0.5, color: "#f0f6fc" }}>dsh-aixterm</span>
+              <span style={{ padding: "2px 7px", borderRadius: 999, color: "#a5d6ff", background: "rgba(88,166,255,0.12)", border: "1px solid rgba(88,166,255,0.3)", fontFamily: mono, fontSize: 10.5 }}>
+                {version ? `v${version}` : "development"}
+              </span>
+            </div>
+            <div style={{ marginTop: 7, maxWidth: 390, color: "#b8c5d6", lineHeight: 1.65, fontSize: 12.5 }}>
+              {tr("为 DeepSeek Harness 打造的智能远程终端，让人和 AI 在同一份现场上下文中协作。", "An intelligent remote terminal for DeepSeek Harness, built for humans and AI to work from the same live context.")}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 14 }}>
+              <a href={projectUrl} target="_blank" rel="noreferrer" style={{ ...S.btnPrimary, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none", padding: "6px 11px" }}>
+                <span aria-hidden="true">↗</span>{tr("查看项目", "View project")}
+              </a>
+              <a href={`${projectUrl}#readme`} target="_blank" rel="noreferrer" style={{ ...S.btn, display: "inline-flex", alignItems: "center", textDecoration: "none", padding: "6px 11px" }}>
+                {tr("使用文档", "Documentation")}
+              </a>
+              <a href={`${projectUrl}/issues`} target="_blank" rel="noreferrer" style={{ ...S.btn, display: "inline-flex", alignItems: "center", textDecoration: "none", padding: "6px 11px" }}>
+                {tr("反馈问题", "Report issue")}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 9, marginTop: 12 }}>
+        {cards.map(([icon, title, detail]) => (
+          <div key={title} style={{ minWidth: 0, minHeight: 78, padding: "11px 10px", borderRadius: 10, border: `1px solid ${C.border}`, background: "linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.008))" }}>
+            <div style={{ color: C.accent, fontSize: 16, lineHeight: 1 }}>{icon}</div>
+            <div style={{ marginTop: 8, color: C.text, fontWeight: 650, fontSize: 11.5 }}>{title}</div>
+            <div style={{ marginTop: 4, color: C.dim, fontSize: 10.5, lineHeight: 1.45, overflowWrap: "anywhere" }}>{detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, padding: "10px 12px", borderRadius: 9, background: C.bg, border: `1px solid ${C.border}` }}>
+        <div>
+          <div style={{ color: C.text, fontSize: 11.5 }}>{tr("开放源代码 · MIT License", "Open source · MIT License")}</div>
+          <div style={{ ...S.muted, marginTop: 3, fontSize: 10.5 }}>{tr("凭据保存在你的 DSH 数据目录中", "Credentials stay in your DSH data directory")}</div>
+        </div>
+        <a href="https://github.com/easyzoom" target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: "none", whiteSpace: "nowrap", fontSize: 11.5 }}>@easyzoom</a>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- terminal */
 
 function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, onInput, onAiAsk, sessionOptions = [], prefs }) {
@@ -249,14 +318,13 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   const onCwdRef = useRef(onCwd);
   const onInputRef = useRef(onInput);
   const prefsRef = useRef(prefs);
-  const hlRef = useRef({ key: "", fn: null });
+  const hlRef = useRef(null);
   const searchRef = useRef(null);
   const historyRef = useRef([]);
   const lineRef = useRef("");
   const escRef = useRef(0);
   const suggestionRef = useRef(null);
-  const lineTimesRef = useRef(new Map());
-  const lastFilledLineRef = useRef(0);
+  const gutterTrackerRef = useRef(null);
   const gutterRafRef = useRef(0);
   const gutterUpdateRef = useRef(null);
   const [suggestion, setSuggestion] = useState(null);
@@ -326,6 +394,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     if (!host) return undefined;
 
     const term = new Terminal({
+      allowProposedApi: true, // Buffer-anchored keyword decorations.
       cursorBlink: true,
       fontSize: 13,
       fontFamily: mono,
@@ -344,6 +413,11 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     term.open(host);
     termRef.current = term;
     fitRef.current = fit;
+    const highlighter = createTerminalHighlighter(term);
+    hlRef.current = highlighter;
+    highlighter.update(prefsRef.current || {});
+    const gutterTracker = createTerminalGutterTracker(term);
+    gutterTrackerRef.current = gutterTracker;
 
     try {
       const search = new SearchAddon();
@@ -378,13 +452,18 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     // OSC 7 (file://host/path) is emitted by the shell after each prompt; use it
     // to follow the terminal directory in the SFTP panel.
     let oscDisposable = null;
+    let hasNativeOscCwd = false;
     try {
       oscDisposable = term.parser.registerOscHandler(7, (data) => {
         try {
           const text = String(data || "");
           const scheme = text.indexOf("//");
           const slash = scheme >= 0 ? text.indexOf("/", scheme + 2) : -1;
-          if (slash >= 0 && onCwdRef.current) onCwdRef.current(decodeURIComponent(text.slice(slash)));
+          const cwd = slash >= 0 ? decodeURIComponent(text.slice(slash)) : "";
+          if (cwd) {
+            hasNativeOscCwd = true;
+            if (onCwdRef.current) onCwdRef.current(cwd);
+          }
         } catch {
           /* malformed OSC 7 */
         }
@@ -406,38 +485,28 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     // ZMODEM: detect sz/rz transfers on the raw byte stream. Remote `sz`
     // downloads are saved to disk automatically; remote `rz` asks for local
     // files through a hidden picker.
-    // Decode bytes to text (streaming, multi-byte safe), apply keyword
-    // highlighting, then write to the terminal.
+    // Decode and preserve the original terminal stream. Keyword colors are
+    // separate buffer decorations, so ANSI/OSC state survives arbitrary chunks.
     const decoder = new TextDecoder("utf-8");
     const writeOut = (octets) => {
       try {
+        const receivedAt = Date.now();
         const bytes = octets instanceof Uint8Array ? octets : Uint8Array.from(octets);
         const text = decoder.decode(bytes, { stream: true });
-        const rules = prefsRef.current && prefsRef.current.highlights;
-        const key = rules && rules.length ? JSON.stringify(rules) : "";
-        if (hlRef.current.key !== key) hlRef.current = { key, fn: key ? buildHighlighter(rules) : null };
-        term.write(hlRef.current.fn ? hlRef.current.fn(text) : text);
-        // Record the first-seen time per physical buffer line for the gutter.
-        try {
-          const now = Date.now();
-          const buf = term.buffer.active;
-          const baseY = buf.baseY;
-          if (baseY < lastFilledLineRef.current) {
-            lineTimesRef.current.clear();
-            lastFilledLineRef.current = 0;
+        // xterm parses writes asynchronously. Record rows only in the callback,
+        // when cursor/buffer positions belong to this output chunk.
+        term.write(text, () => {
+          try {
+            gutterTracker.recordWrite(receivedAt);
+            if (!hasNativeOscCwd) {
+              const promptCwd = readTerminalPromptCwd(term);
+              if (promptCwd && onCwdRef.current) onCwdRef.current(promptCwd);
+            }
+            scheduleGutter();
+          } catch {
+            /* gutter bookkeeping failed */
           }
-          // Fill missing timestamps for new lines and for the visible viewport,
-          // so on-screen lines carry a time too.
-          const start = Math.min(lastFilledLineRef.current, buf.viewportY);
-          const end = Math.max(baseY, buf.viewportY + term.rows - 1);
-          for (let l = start; l <= end; l += 1) {
-            if (!lineTimesRef.current.has(l)) lineTimesRef.current.set(l, now);
-          }
-          lastFilledLineRef.current = Math.max(lastFilledLineRef.current, baseY + 1);
-          scheduleGutter();
-        } catch {
-          /* gutter bookkeeping failed */
-        }
+        });
       } catch {
         /* terminal gone */
       }
@@ -489,14 +558,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         setGutterRows([]);
         return;
       }
-      const buf = term.buffer.active;
-      const top = buf.viewportY;
-      const rows = [];
-      for (let i = 0; i < term.rows; i += 1) {
-        const line = top + i;
-        rows.push({ no: line + 1, time: lineTimesRef.current.get(line) || "" });
-      }
-      setGutterRows(rows);
+      setGutterRows(gutterTracker.visibleRows());
       const screen = term.element && term.element.querySelector(".xterm-screen");
       if (screen) {
         const h = screen.getBoundingClientRect().height;
@@ -647,6 +709,10 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         /* ignore */
       }
       try {
+        highlighter.dispose();
+        hlRef.current = null;
+        gutterTracker.dispose();
+        gutterTrackerRef.current = null;
         term.dispose();
       } catch {
         /* ignore */
@@ -656,6 +722,10 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
       fitRef.current = null;
     };
   }, [terminalId]);
+
+  useEffect(() => {
+    hlRef.current?.update(prefs || {});
+  }, [prefs && prefs.standardHighlights, prefs && prefs.highlights, prefs && prefs.theme]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -779,7 +849,11 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
 
   function resetTerminal() {
     try {
-      termRef.current && termRef.current.reset();
+      if (termRef.current) {
+        termRef.current.reset();
+        gutterTrackerRef.current?.reset();
+        gutterUpdateRef.current?.();
+      }
     } catch {
       /* terminal gone */
     }
@@ -814,7 +888,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   ];
 
   const gutterMode = (prefs && prefs.gutter) || "off";
-  const gutterWidth = gutterMode === "off" ? 0 : gutterMode === "both" ? 96 : 64;
+  const gutterWidth = gutterMode === "off" ? 0 : gutterMode === "both" ? 120 : 72;
   const fmtGutterTime = (ts) => {
     if (!ts) return "";
     try {
@@ -897,7 +971,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         <div
           style={{
             position: "absolute",
-            left: (gutterMode !== "off" ? (gutterMode === "both" ? 96 : 64) : 0) + 16,
+            left: gutterWidth + 16,
             bottom: 10,
             zIndex: 5,
             background: C.panel,
@@ -1955,6 +2029,7 @@ function MonitorPanel({ sessionId }) {
 
 function SftpPanel({ sessionId, followPath }) {
   const [path, setPath] = useState(".");
+  const [homePath, setHomePath] = useState("");
   const [entries, setEntries] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -1962,24 +2037,34 @@ function SftpPanel({ sessionId, followPath }) {
   const [edit, setEdit] = useState(null); // { path, name, text } while editing a remote text file
   const [follow, setFollow] = useState(true);
   const fileRef = useRef(null);
+  const listRequestRef = useRef(0);
 
   const list = useCallback(
     async (p) => {
       if (!sessionId) return;
+      const requestId = ++listRequestRef.current;
       setBusy(true);
       try {
         const d = await postJson("/sftp", { sessionId, op: "list", path: p || "." });
+        if (d && d.ok && typeof d.path === "string" && d.path && (!p || p === ".")) {
+          setHomePath((previous) => previous || d.path);
+        }
+        // An initial home listing can finish after a prompt-follow request.
+        // Keep the latest navigation result instead of jumping back home.
+        if (requestId !== listRequestRef.current) return;
         if (d && d.ok) {
           setEntries(d.entries || []);
-          if (typeof d.path === "string" && d.path) setPath(d.path);
+          if (typeof d.path === "string" && d.path) {
+            setPath(d.path);
+          }
           setMsg(null);
         } else {
           setMsg({ kind: "err", text: (d && d.error) || "列目录失败" });
         }
       } catch (e) {
-        setMsg({ kind: "err", text: String(e) });
+        if (requestId === listRequestRef.current) setMsg({ kind: "err", text: String(e) });
       } finally {
-        setBusy(false);
+        if (requestId === listRequestRef.current) setBusy(false);
       }
     },
     [sessionId]
@@ -1987,17 +2072,19 @@ function SftpPanel({ sessionId, followPath }) {
 
   useEffect(() => {
     setPath(".");
+    setHomePath("");
     setEntries(null);
     list(".");
   }, [sessionId, list]);
 
-  // Follow the terminal's cwd (OSC 7) when the toggle is on.
+  // Follow native OSC 7 first, with a prompt parser fallback for unmodified
+  // bash/ash/zsh, PowerShell and cmd sessions.
   useEffect(() => {
     if (!follow || !followPath) return;
-    if (followPath === path) return;
-    setPath(followPath);
-    list(followPath);
-  }, [follow, followPath, path, list]);
+    const target = resolveFollowPath(followPath, homePath);
+    if (!target || target === path) return;
+    list(target);
+  }, [follow, followPath, homePath, path, list]);
 
   async function sftpOp(op, extra) {
     const d = await postJson("/sftp", { sessionId, op, ...extra });
@@ -2186,7 +2273,7 @@ function SftpPanel({ sessionId, followPath }) {
           <button style={S.btn} title="刷新" onClick={() => list(path)} disabled={busy}>⟳</button>
           <button style={S.btn} title="新建目录" onClick={newDir} disabled={busy}>＋目录</button>
           <button style={S.btn} title="上传文件" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>上传</button>
-          <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" }} title="跟随远端 shell 上报的目录（OSC 7）；未上报时可手动浏览，不会自动改写 shell 提示符">
+          <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" }} title="优先跟随远端 shell 的 OSC 7；未上报时识别常见 shell 提示符，不会向终端注入命令">
             <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
             跟随
           </label>
@@ -2340,9 +2427,9 @@ function AixtermApp({ hostCtx }) {
   const [sessionQuery, setSessionQuery] = useState("");
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, standardHighlights: true, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "", ...(JSON.parse(localStorage.getItem("aixterm.prefs") || "{}") || {}) };
     } catch {
-      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "" };
+      return { fontSize: 13, theme: "dark", fontFamily: "", lineHeight: 1.15, standardHighlights: true, highlights: [], lang: "zh", suggestions: true, gutter: "off", aiModelPolicy: "follow", aiProvider: "", aiModel: "", aiEffort: "" };
     }
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -2442,6 +2529,7 @@ function AixtermApp({ hostCtx }) {
   }, [hostCtx]);
   const [termSettings, setTermSettings] = useState({ saveScrollback: true, scrollbackDir: "", bufferLines: 2000, dataDir: "" });
   const [termSettingsMsg, setTermSettingsMsg] = useState(null);
+  const [bannerSaving, setBannerSaving] = useState(false);
   const recRef = useRef(null);
   const [recordingTerminal, setRecordingTerminal] = useState(null);
   const [macros, setMacros] = useState([]);
@@ -2515,6 +2603,20 @@ function AixtermApp({ hostCtx }) {
     } catch (e) {
       setTermSettingsMsg({ kind: "err", text: String(e) });
     }
+  }
+
+  async function setColorfulBanner(value) {
+    const previous = termSettings.colorfulBanner !== false;
+    setBannerSaving(true);
+    setTermSettings((prev) => ({ ...prev, colorfulBanner: value }));
+    try {
+      const result = await postJson("/settings", { colorfulBanner: value });
+      if (!result.ok) throw new Error(result.error || "保存失败");
+      setTermSettings((prev) => ({ ...prev, ...result.settings }));
+    } catch (error) {
+      setTermSettings((prev) => ({ ...prev, colorfulBanner: previous }));
+      setMsg({ kind: "err", text: String(error.message || error) });
+    } finally { setBannerSaving(false); }
   }
 
   async function saveTermSettings() {
@@ -4183,6 +4285,10 @@ function AixtermApp({ hostCtx }) {
                       ))}
                     </select>
                   </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", marginTop: 10 }}>
+                    <input type="checkbox" disabled={bannerSaving} checked={termSettings.colorfulBanner !== false} onChange={(e) => setColorfulBanner(e.target.checked)} />
+                    <span>{tr("彩色 SSH 登录横幅（新建终端生效）", "Colorful SSH banner (new terminals)")}</span>
+                  </label>
                 </>
               ) : null}
 
@@ -4253,8 +4359,14 @@ function AixtermApp({ hostCtx }) {
               {settingsTab === "highlight" ? (
                 <div>
                   <div style={{ ...S.muted, marginBottom: 4 }}>{tr("关键字高亮", "Keyword highlighting")}</div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 0", cursor: "pointer" }}>
+                    <input type="checkbox" checked={prefs.standardHighlights !== false} onChange={(e) => updatePrefs({ standardHighlights: e.target.checked })} />
+                    <span>{tr("内置关键词高亮（默认开启）", "Built-in keyword highlighting (default on)")}</span>
+                  </label>
+                  <div style={{ ...S.muted, fontSize: 11, marginBottom: 10, lineHeight: 1.6 }}>{tr("错误标红、警告标黄、成功标绿、信息标蓝。保留远端原有颜色；vim/top 等备用屏幕不叠加高亮。仅影响显示，不修改输出或日志。", "Errors red, warnings yellow, success green, info blue. Remote colors take priority; alternate-screen apps are not overlaid. Display only; output and logs stay unchanged.")}</div>
+                  <div style={{ ...S.muted, marginBottom: 6 }}>{tr("自定义规则（优先于内置关键词）", "Custom rules (override built-in keywords)")}</div>
                   {(prefs.highlights || []).length === 0 ? (
-                    <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("暂无规则（例如把 ERROR 标红、WARN 标黄）", "No rules (e.g. colour ERROR red, WARN yellow)")}</div>
+                    <div style={{ ...S.muted, fontSize: 11, marginBottom: 4 }}>{tr("暂无自定义规则", "No custom rules")}</div>
                   ) : (
                     (prefs.highlights || []).map((rule, i) => (
                       <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
@@ -4358,21 +4470,7 @@ function AixtermApp({ hostCtx }) {
               ) : null}
 
               {settingsTab === "about" ? (
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span>dsh-aixterm</span>
-                    <span style={S.muted}>{termSettings.version ? `v${termSettings.version}` : ""}</span>
-                  </div>
-                  <a
-                    href={termSettings.repo || "https://github.com/easyzoom/dsh-aixterm"}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: C.accent, wordBreak: "break-all" }}
-                  >
-                    github.com/easyzoom/dsh-aixterm
-                  </a>
-                  <div style={{ ...S.muted, marginTop: 4 }}>MIT License</div>
-                </div>
+                <AboutPanel version={termSettings.version} repo={termSettings.repo} lang={prefs.lang || "zh"} />
               ) : null}
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 18px", borderTop: `1px solid ${C.border}`, flex: "0 0 auto" }}>

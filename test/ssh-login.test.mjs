@@ -11,6 +11,7 @@ import stringWidth from "string-width";
 import { openShell } from "../lib/ssh.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const plain = (text) => text.replace(/\x1b\[[\d;]*m/g, "");
 const welcome = "\r\nBusyBox v1.33.2 built-in shell (ash)\r\n注意: rootfs/app/resdata目前为只读分区\r\nroot@TinaLinux:~# ";
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 async function fixture(t, compression = ["none"]) {
@@ -62,7 +63,7 @@ test("SSH login preserves server welcome and emits no shell initialization comma
 test("SSH login header rows align and fit a narrow terminal", async (t) => {
   const { manager, session } = await fixture(t);
   const id = await manager.open({ session: { ...session, user: "a".repeat(90) }, cols: 40, rows: 24 });
-  const rows = manager.buffer(id).split("\r\n").filter((line) => /^[┌│└]/.test(line));
+  const rows = plain(manager.buffer(id)).split("\r\n").filter((line) => /^[┌│└]/.test(line));
   assert.ok(rows.length > 5);
   assert.equal(new Set(rows.map((line) => [...line].length)).size, 1);
   assert.ok(rows.every((line) => [...line].length <= 40));
@@ -72,7 +73,7 @@ test("SSH login header rows align and fit a narrow terminal", async (t) => {
 test("SSH login negotiates and accurately displays supported compression", async (t) => {
   const { manager, session } = await fixture(t, ["zlib@openssh.com", "none"]);
   const id = await manager.open({ session, cols: 100, rows: 24 });
-  assert.match(manager.buffer(id), /SSH compression\s*:\s*✓/);
+  assert.match(plain(manager.buffer(id)), /SSH compression\s*:\s*✓/);
 });
 
 test("explicit tmux attachment uses an SSH exec request without typing commands into the login shell", async (t) => {
@@ -81,7 +82,17 @@ test("explicit tmux attachment uses an SSH exec request without typing commands 
   await wait(50);
   assert.deepEqual(execs, ["exec tmux new-session -A -s 'work'"]);
   assert.equal(input.join(""), "");
-  assert.match(manager.buffer(id), /tmux\s*:\s*work/);
+  assert.match(plain(manager.buffer(id)), /tmux\s*:\s*work/);
+});
+
+test("connection banner is colorful by default, resets styles, and supports plain output", () => {
+  const session = { user: "root", host: "example.test" }, options = { cols: 80, compression: { outgoing: "none", incoming: "none" } };
+  const colored = connectionHeader(session, options), disabled = connectionHeader(session, { ...options, color: false });
+  assert.match(colored, /\x1b\[/);
+  assert.ok(colored.endsWith("\x1b[0m\r\n"));
+  assert.doesNotMatch(disabled, /\x1b/);
+  assert.equal(plain(colored), disabled);
+  assert.ok(plain(colored).trimEnd().split("\r\n").every((row) => stringWidth(row) === 72));
 });
 
 test("SSH display handles wide characters, long fields, multiline banners and unsafe tmux names", async () => {

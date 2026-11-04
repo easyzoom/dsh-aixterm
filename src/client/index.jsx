@@ -3561,71 +3561,31 @@ function AixtermApp({ hostCtx }) {
         ) : null}
       </main>
 
-      {/* right: monitor + sftp (ssh sessions only) */}
+      {/* right: tool rail (always visible on the far right) + collapsible content */}
       {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? (
         <aside
           style={{
-            width: rightCollapsed ? 34 : 340,
-            flex: rightCollapsed ? "0 0 34px" : "0 0 340px",
+            flex: "0 0 auto",
             borderLeft: `1px solid ${C.border}`,
             background: C.panel,
             display: "flex",
-            flexDirection: "column",
+            flexDirection: "row",
             minHeight: 0,
             overflow: "hidden",
           }}
         >
-          {rightCollapsed ? (
-            <button
-              style={{ ...S.btn, margin: "10px auto", padding: "4px 6px", fontSize: 12 }}
-              title={tr("展开工具面板", "Expand tools")}
-              onClick={() => setRightCollapsed(false)}
-            >
-              «
-            </button>
-          ) : (
-            <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-              <div style={{ width: 36, flex: "0 0 36px", borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 4 }}>
-                <button
-                  style={{ ...S.btn, margin: "0 0 8px", padding: "1px 5px", fontSize: 11 }}
-                  title={tr("收起工具面板", "Collapse tools")}
-                  onClick={() => setRightCollapsed(true)}
-                >
-                  »
-                </button>
-                {RIGHT_TOOLS.map((t) => {
-                  const selected = rightTool === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      title={t.label}
-                      onClick={() => setRightTool(t.id)}
-                      style={{
-                        border: "none",
-                        background: selected ? C.accentBg : "transparent",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        fontSize: 16,
-                        padding: "6px 4px",
-                        margin: "2px 0",
-                        position: "relative",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {selected ? <span style={{ position: "absolute", left: -1, top: 5, bottom: 5, width: 3, borderRadius: 2, background: C.accent }} /> : null}
-                      {t.icon}
-                    </button>
-                  );
-                })}
-                <button
-                  style={{ ...S.btn, marginTop: 8, padding: "1px 5px", fontSize: 11 }}
-                  title={tr("把当前工具弹出为浮动窗口", "Pop the current tool out as a floating window")}
-                  onClick={pinCurrentTool}
-                >
-                  ⧉
-                </button>
-              </div>
-              <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div
+            style={{
+              width: rightCollapsed ? 0 : 340,
+              flex: "0 0 auto",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+            }}
+          >
+            {rightCollapsed ? null : (
+              <div style={{ width: 340, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
                 {rightTool === "monitor" ? (
                   <MonitorPanel sessionId={activeTab.sessionId} />
                 ) : rightTool === "files" ? (
@@ -3634,8 +3594,61 @@ function AixtermApp({ hostCtx }) {
                   <ToolPlaceholder tool={rightTool} />
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          <div
+            style={{
+              width: 36,
+              flex: "0 0 36px",
+              borderLeft: `1px solid ${C.border}`,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              paddingTop: 4,
+            }}
+          >
+            <button
+              style={{ ...S.btn, margin: "0 0 8px", padding: "1px 5px", fontSize: 11 }}
+              title={rightCollapsed ? tr("展开工具面板", "Expand tools") : tr("收起工具面板", "Collapse tools")}
+              onClick={() => setRightCollapsed((v) => !v)}
+            >
+              {rightCollapsed ? "«" : "»"}
+            </button>
+            {RIGHT_TOOLS.map((t) => {
+              const selected = rightTool === t.id;
+              return (
+                <button
+                  key={t.id}
+                  title={t.label}
+                  onClick={() => {
+                    setRightTool(t.id);
+                    setRightCollapsed(false);
+                  }}
+                  style={{
+                    border: "none",
+                    background: selected ? C.accentBg : "transparent",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontSize: 16,
+                    padding: "6px 4px",
+                    margin: "2px 0",
+                    position: "relative",
+                    lineHeight: 1,
+                  }}
+                >
+                  {selected ? <span style={{ position: "absolute", left: -1, top: 5, bottom: 5, width: 3, borderRadius: 2, background: C.accent }} /> : null}
+                  {t.icon}
+                </button>
+              );
+            })}
+            <button
+              style={{ ...S.btn, marginTop: 8, padding: "1px 5px", fontSize: 11 }}
+              title={tr("把当前工具弹出为浮动窗口", "Pop the current tool out as a floating window")}
+              onClick={pinCurrentTool}
+            >
+              ⧉
+            </button>
+          </div>
         </aside>
       ) : null}
 

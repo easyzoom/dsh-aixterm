@@ -268,6 +268,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   const [menu, setMenu] = useState(null);
   const [askBox, setAskBox] = useState(null);
   const [askText, setAskText] = useState("");
+  const askRef = useRef(null);
   const termRef = useRef(null);
   const fitRef = useRef(null);
 
@@ -301,6 +302,15 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     document.addEventListener("click", hide);
     return () => document.removeEventListener("click", hide);
   }, []);
+
+  useEffect(() => {
+    if (!askBox) return undefined;
+    const onDoc = (e) => {
+      if (askRef.current && !askRef.current.contains(e.target)) setAskBox(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [askBox]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -932,6 +942,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         const top = askBox.y + 4 + popH > vh - 8 ? Math.max(8, askBox.y - popH - 4) : askBox.y + 4;
         return (
         <div
+          ref={askRef}
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "fixed",

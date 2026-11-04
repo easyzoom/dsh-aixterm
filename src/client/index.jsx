@@ -1051,11 +1051,19 @@ const RIGHT_TOOLS = [
   { id: "monitor", icon: "📊", label: "资源监控" },
   { id: "network", icon: "🌐", label: "网络工具" },
   { id: "system", icon: "🛠", label: "系统工具" },
+  { id: "process", icon: "📋", label: "进程管理" },
+  { id: "logs", icon: "📜", label: "日志查看" },
+  { id: "forward", icon: "🔁", label: "端口转发" },
+  { id: "diagnose", icon: "🔍", label: "连接诊断" },
 ];
 
 const TOOL_PLANS = {
   network: ["ping / traceroute", "端口连通检测", "网络接口详情", "路由表", "DNS 解析", "端口扫描"],
-  system: ["进程列表 / 排序", "终止进程（审批）", "服务管理", "软件包管理", "系统日志", "磁盘与挂载"],
+  system: ["系统信息", "磁盘与挂载", "磁盘占用分析", "服务/自启管理", "软件包管理", "时间同步"],
+  process: ["进程列表（按 CPU/内存排序）", "进程树", "查找进程", "终止进程（审批）", "进程详情"],
+  logs: ["命令历史日志（人/AI）", "终端滚动日志", "远端系统日志（dmesg/syslog）", "日志高亮与过滤"],
+  forward: ["全局转发视图（-L/-R/-D）", "增删查与状态", "字节流量统计"],
+  diagnose: ["DNS → TCP → SSH → 认证 → 跳板", "各阶段延迟", "一键诊断报告"],
 };
 
 function ToolPlaceholder({ tool }) {

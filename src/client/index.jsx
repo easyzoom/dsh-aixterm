@@ -18,7 +18,7 @@ import Zmodem from "zmodem.js/src/zmodem_browser.js";
 import xtermCss from "@xterm/xterm/css/xterm.css";
 import DiagnosticsPanel from "./DiagnosticsPanel.jsx";
 import { readTerminalPromptCwd, resolveFollowPath } from "./terminal-cwd.js";
-import { createTerminalGutterTracker } from "./terminal-gutter.js";
+import { createTerminalGutterTracker, formatGutterTime } from "./terminal-gutter.js";
 import { createTerminalHighlighter } from "./terminal-highlights.js";
 
 const PREFIX = "/dsh-aixterm";
@@ -888,18 +888,10 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
   ];
 
   const gutterMode = (prefs && prefs.gutter) || "off";
-  const gutterWidth = gutterMode === "off" ? 0 : gutterMode === "both" ? 120 : 72;
-  const fmtGutterTime = (ts) => {
-    if (!ts) return "";
-    try {
-      return new Date(ts).toTimeString().slice(0, 8);
-    } catch {
-      return "";
-    }
-  };
+  const gutterWidth = gutterMode === "off" ? 0 : gutterMode === "both" ? 144 : gutterMode === "time" ? 96 : 72;
   const gutterLines = gutterRows.map((r, i) => {
     const label =
-      gutterMode === "time" ? fmtGutterTime(r.time) : gutterMode === "line" ? String(r.no) : `${r.no} ${fmtGutterTime(r.time)}`;
+      gutterMode === "time" ? formatGutterTime(r.time) : gutterMode === "line" ? String(r.no) : `${r.no} ${formatGutterTime(r.time)}`;
     return (
       <div
         key={i}

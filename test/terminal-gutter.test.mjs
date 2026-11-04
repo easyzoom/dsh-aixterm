@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createTerminalGutterTracker } from "../src/client/terminal-gutter.js";
+import { createTerminalGutterTracker, formatGutterTime } from "../src/client/terminal-gutter.js";
 
 function mockTerminal({ rows = 4 } = {}) {
   let lineFeed;
@@ -54,6 +54,13 @@ function mockTerminal({ rows = 4 } = {}) {
     },
   };
 }
+
+test("gutter timestamps display local time with millisecond precision", () => {
+  const timestamp = new Date(2026, 0, 2, 3, 4, 5, 6).getTime();
+  assert.equal(formatGutterTime(timestamp), "03:04:05.006");
+  assert.equal(formatGutterTime(""), "");
+  assert.equal(formatGutterTime(Number.NaN), "");
+});
 
 test("gutter timestamps only materialized logical lines after a parsed write", () => {
   const mock = mockTerminal({ rows: 5 });

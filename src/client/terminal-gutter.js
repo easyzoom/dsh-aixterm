@@ -2,6 +2,14 @@ function emptyRows(count) {
   return Array.from({ length: count }, () => ({ no: "", time: "" }));
 }
 
+export function formatGutterTime(timestamp) {
+  if (timestamp === "" || timestamp == null) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value, width = 2) => String(value).padStart(width, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
 /**
  * Track logical terminal lines with xterm markers.
  *

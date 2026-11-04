@@ -13,7 +13,10 @@ test("keys: generate, list, fingerprint, delete", () => {
   assert.equal(made.type, "ssh-ed25519");
   assert.match(made.publicKey, /^ssh-ed25519 /);
   const file = keyPathOf(dir, "laptop");
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, "private key is 600");
+  // Windows reports writable/read-only attributes, not POSIX permission bits.
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, "private key is 600");
+  }
   const list = listKeys(dir);
   assert.equal(list.length, 1);
   assert.equal(list[0].name, "laptop");

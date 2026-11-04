@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "schemaVersion": 1,
+      "id": "custom-service",
+      "name": "应用服务检查",
+      "description": "检查指定服务的 systemd 状态；无 systemd 时保留进程快照。",
+      "target": {
+        "os": [
+          "linux"
+        ],
+        "transport": [
+          "ssh"
+        ]
+      },
+      "inputs": [
+        {
+          "id": "service",
+          "name": "服务名",
+          "required": true,
+          "default": "sshd"
+        }
+      ],
+      "checks": [
+        {
+          "id": "service-status",
+          "name": "服务状态",
+          "command": "if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then systemctl status --no-pager {{service}}; else ps; fi",
+          "timeoutMs": 5000,
+          "maxOutputBytes": 16384
+        },
+        {
+          "id": "terminal",
+          "name": "最近终端日志",
+          "type": "terminal",
+          "maxOutputBytes": 12000
+        }
+      ],
+      "analysis": {
+        "instructions": "先判断是否存在有效的服务状态证据，区分未运行、无权限和工具缺失。引用检查 ID，不自动执行修复。"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "boot-log-review",
+      "name": "启动日志分析",
+      "description": "不发送命令，仅采集已打开终端的日志末尾。",
+      "target": {
+        "os": [
+          "linux"
+        ],
+        "transport": [
+          "ssh",
+          "serial",
+          "telnet"
+        ]
+      },
+      "checks": [
+        {
+          "id": "boot-log",
+          "name": "启动日志末尾",
+          "type": "terminal",
+          "maxOutputBytes": 16384
+        }
+      ],
+      "analysis": {
+        "instructions": "检查驱动初始化失败、内存不足、挂载失败和启动时间间隔，先确认日志是否属于本次启动。"
+      }
+    }
+  ]
+}

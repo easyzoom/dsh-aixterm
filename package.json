@@ -25,6 +25,9 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
+    "docs/diagnostic-profiles.md",
+    "docs/diagnostic-profile.schema.json",
+    "docs/examples",
     "LICENSE"
   ],
   "keywords": [
@@ -50,7 +53,7 @@
     }
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "repository": {
     "type": "git",
@@ -69,9 +72,12 @@
     "node-pty": "^1.1.0",
     "serialport": "^13.0.0",
     "ssh2": "^1.17.0",
+    "string-width": "^7.2.0",
     "zmodem.js": "^0.1.10"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",

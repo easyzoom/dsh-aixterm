@@ -16,6 +16,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import Zmodem from "zmodem.js/src/zmodem_browser.js";
 import xtermCss from "@xterm/xterm/css/xterm.css";
+import DiagnosticsPanel from "./DiagnosticsPanel.jsx";
 
 const PREFIX = "/dsh-aixterm";
 const CSS_ID = "dsh-aixterm-xterm-css";
@@ -1113,6 +1114,7 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
 /* ------------------------------------------------------------------- sftp */
 
 const RIGHT_TOOLS = [
+  { id: "device-diagnostics", icon: "🩺", label: "设备排障" },
   { id: "files", icon: "📁", label: "文件 (SFTP)" },
   { id: "monitor", icon: "📊", label: "资源监控" },
   { id: "network", icon: "🌐", label: "网络工具" },
@@ -1149,7 +1151,7 @@ function ToolPlaceholder({ tool }) {
   );
 }
 
-function FloatingTool({ tool, sessionId, index, onClose }) {
+function FloatingTool({ tool, sessionId, terminalId, sessionName, sessionKind, onDiagnosticAsk, index, onClose }) {
   const [pos, setPos] = useState(() => ({ x: 60 + index * 24, y: 60 + index * 24 }));
   const dragRef = useRef(null);
   const label = (RIGHT_TOOLS.find((t) => t.id === tool) || {}).label || tool;
@@ -1190,7 +1192,9 @@ function FloatingTool({ tool, sessionId, index, onClose }) {
         <button style={{ border: "none", background: "transparent", color: C.dim, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }} onClick={onClose} title="关闭">✕</button>
       </div>
       <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-        {tool === "monitor" ? (
+        {tool === "device-diagnostics" ? (
+          <DiagnosticsPanel sessionId={sessionId} terminalId={terminalId} sessionName={sessionName} sessionKind={sessionKind} onAsk={onDiagnosticAsk} colors={C} styles={S} />
+        ) : tool === "monitor" ? (
           <MonitorPanel sessionId={sessionId} />
         ) : tool === "files" ? (
           <SftpPanel sessionId={sessionId} />
@@ -1580,8 +1584,11 @@ function AiPanel({ hostCtx, lang, sessionId, terminalId, cwd, initialPrompt, ini
       return;
     }
     let target = targetOverride || chosenSession;
+    // Initial questions can arrive before the list effect updates React state.
+    // Resolve against the live service before deciding to create a conversation.
+    if (!target) target = resolveTargetSession(sessions);
     let created = false;
-    if (target === "__new__" || (!target && !sessionChoices.length)) {
+    if (target === "__new__" || !target) {
       try {
         target = await sessions.create({
           ...(chosenWorkspace ? { workspaceId: chosenWorkspace } : {}),
@@ -2179,7 +2186,7 @@ function SftpPanel({ sessionId, followPath }) {
           <button style={S.btn} title="刷新" onClick={() => list(path)} disabled={busy}>⟳</button>
           <button style={S.btn} title="新建目录" onClick={newDir} disabled={busy}>＋目录</button>
           <button style={S.btn} title="上传文件" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>上传</button>
-          <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" }} title="SFTP 面板跟随终端当前目录">
+          <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 3, fontSize: 11, cursor: "pointer" }} title="跟随远端 shell 上报的目录（OSC 7）；未上报时可手动浏览，不会自动改写 shell 提示符">
             <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
             跟随
           </label>
@@ -2351,9 +2358,9 @@ function AixtermApp({ hostCtx }) {
   const [pinnedTools, setPinnedTools] = useState([]);
 
   function pinCurrentTool() {
-    const id = rightTool;
+    const id = activeTab?.kind === "ssh" ? rightTool : "device-diagnostics";
     if (pinnedTools.some((p) => p.id === id)) return;
-    setPinnedTools((prev) => [...prev, { id, sessionId: (activeTab && activeTab.sessionId) || "" }]);
+    setPinnedTools((prev) => [...prev, { id, sessionId: activeTab?.sessionId || "", terminalId: activeTab?.id || "", sessionKind: activeTab?.kind, sessionName: sessions.find((s) => s.id === activeTab?.sessionId)?.name || "" }]);
   }
 
   function unpinTool(id) {
@@ -2772,6 +2779,11 @@ function AixtermApp({ hostCtx }) {
     setAiInitialAsk(question);
     setAiAskTarget(target || "");
     setShowAi(true);
+  }
+
+  function handleDiagnosticAsk(report, prompt) {
+    if (report.session.id !== activeTab?.sessionId) return;
+    handleAiAsk(prompt);
   }
 
   function cycleLayout() {
@@ -3628,7 +3640,7 @@ function AixtermApp({ hostCtx }) {
       </main>
 
       {/* right: tool rail (always visible on the far right) + collapsible content */}
-      {activeTab && activeTab.kind === "ssh" && activeTab.sessionId ? (
+      {activeTab && activeTab.sessionId ? (
         <aside
           style={{
             flex: "0 0 auto",
@@ -3652,7 +3664,9 @@ function AixtermApp({ hostCtx }) {
           >
             {rightCollapsed ? null : (
               <div style={{ width: 340, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                {rightTool === "monitor" ? (
+                {rightTool === "device-diagnostics" || activeTab.kind !== "ssh" ? (
+                  <DiagnosticsPanel sessionId={activeTab.sessionId} terminalId={activeTab.id} sessionKind={activeTab.kind} sessionName={sessions.find((s) => s.id === activeTab.sessionId)?.name} onAsk={handleDiagnosticAsk} colors={C} styles={S} />
+                ) : rightTool === "monitor" ? (
                   <MonitorPanel sessionId={activeTab.sessionId} />
                 ) : rightTool === "files" ? (
                   <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} followPath={cwdByTerminal[activeTab.id]} />
@@ -3680,8 +3694,8 @@ function AixtermApp({ hostCtx }) {
             >
               {rightCollapsed ? "«" : "»"}
             </button>
-            {RIGHT_TOOLS.map((t) => {
-              const selected = rightTool === t.id;
+            {RIGHT_TOOLS.filter((t) => activeTab.kind === "ssh" || t.id === "device-diagnostics").map((t) => {
+              const selected = rightTool === t.id || (activeTab.kind !== "ssh" && t.id === "device-diagnostics");
               return (
                 <button
                   key={t.id}
@@ -3777,7 +3791,7 @@ function AixtermApp({ hostCtx }) {
 
       {/* floating pinned tools */}
       {pinnedTools.map((p, i) => (
-        <FloatingTool key={p.id} tool={p.id} sessionId={p.sessionId} index={i} onClose={() => unpinTool(p.id)} />
+        <FloatingTool key={p.id} tool={p.id} sessionId={p.sessionId} terminalId={p.terminalId} sessionName={p.sessionName} sessionKind={p.sessionKind} onDiagnosticAsk={activeTab?.sessionId === p.sessionId ? handleDiagnosticAsk : undefined} index={i} onClose={() => unpinTool(p.id)} />
       ))}
 
       {/* lock overlay */}

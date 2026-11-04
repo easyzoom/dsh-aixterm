@@ -36,7 +36,7 @@
 - **SSH 密钥管理** —— 生成 ed25519 或导入已有私钥，会话按名称引用；密钥存于 `<dataDir>/keys`（权限 600）。
 - **Telnet 会话** —— `host:port` Telnet（含 IAC 协商），与 SSH 共用终端界面（仅 SSH 可用的面板自动隐藏）。
 - **终端类型（TERM）** —— 设置里选择模拟的终端类型（xterm-256color、xterm、vt100、vt220、linux、screen、ansi 等），作用于新建的 SSH 与本地终端。
-- **连接横幅** —— SSH 终端顶部显示 MobaXterm 风格横幅（目标、Direct SSH、压缩、X11、tmux），并保留服务器 pre-auth banner 与 shell 欢迎信息（不再启动时清屏抹掉）。
+- **连接横幅** —— 明确区分服务器预认证 banner、连接信息和 shell 欢迎信息。横幅按终端宽度对齐，压缩状态来自实际 SSH 协商（优先压缩，不支持时退回 none）。普通登录不发送初始化命令，不自动切换 bash 或改写 PS1。目录跟随依赖远端已有的 OSC 7 上报，未配置时可手动浏览 SFTP。
 - **串口会话** —— 本机串口（设备路径、波特率、数据位/停止位/校验）与 SSH 共用同一终端界面。
 - **X11 转发** —— 会话可开启 X11 转发到本机 X server（需服务器装 `xauth`、本机有 `DISPLAY`）。
 - **ZMODEM** —— 远端 `sz` 下载自动保存到本地；远端 `rz` 弹出本地文件选择（基于 zmodem.js）。
@@ -53,6 +53,16 @@
 - **可配置数据目录** —— 会话文件、加密密钥、终端回滚日志同一目录（插件配置 `dataDir`，默认 `$DSH_HOME/aixterm`）。
 
 ## 安装
+
+### 设备排障与平台支持
+
+支持**用户自定义诊断方案**：点击“管理 / 导入导出”，可新建、复制内置方案、编辑输入参数与检查步骤、调整顺序、设置超时/输出上限和 AI 分析重点。支持单方案或集合 JSON 导入导出，导入不会执行命令，也不会覆盖已有同 ID 方案。自定义 SSH 命令先展示完整预览，再确认运行；agent 调用时会请求审批。[格式协议与示例](docs/diagnostic-profiles.md) · [JSON Schema](docs/diagnostic-profile.schema.json)。
+
+在已连接会话右侧点击 **🩺 设备排障**，选择内置启动异常、服务未启动（需填写服务名）或存储不足，也可选择用户方案。每项检查展示时间、命令和原始输出；缺少工具、权限不足、超时或输出截断会标为信息不完整。预览后可点击 **交给 AI 分析**，报告才会发送到现有主对话；不会自动执行 AI 建议的修复。
+
+DSH 宿主可以是 **Windows、Linux 或 macOS**，插件要求 **Node 20+**（与串口依赖要求一致）。采集通过 Node SSH 接口完成，不在宿主执行 Linux 命令。首版主动诊断面向远端 **Linux / BusyBox**，会先识别目标系统；systemd 工具不可用时保留可采集的信息并说明限制。串口与 Telnet 仅读取已有终端输出，不发送命令，兼容 `COM3`、`/dev/ttyUSB0`、`/dev/cu.*` 等宿主串口命名。尚无日志时会明确提示。
+
+agent 可调用 `aixterm_diagnose`，参数为 `session`（id 或名称）、`scenario`（`boot` / `service` / `storage`）和可选 `service` / `terminalId`。CI 配置覆盖三种宿主的测试与前端构建；本地验证的平台以实际运行环境为准。SSH/串口依赖含原生模块，需安装与宿主系统和 CPU 架构匹配的 Node 运行环境。
 
 用 dsh 自带的 `dsh` CLI，`<profile>` 换成你的 profile（桌面端 `desktop`，`dsh web` 是 `web`）。
 

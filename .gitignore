@@ -8,3 +8,5 @@ dist/
 .env.*
 # local-only notes — not committed
 docs/.local/
+docs/superpowers/plans/
+docs/superpowers/specs/

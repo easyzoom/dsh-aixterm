@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,7 +25,10 @@ jobs:
           node --check lib/store.js
           node --check lib/crypto.js
           node --check lib/ssh.js
+          node --check lib/diagnostics.js
           node --check lib/tools.js
           node --check lib/client.js
       - name: Test
         run: node --test
+      - name: Build client
+        run: npm run build

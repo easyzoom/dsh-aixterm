@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dsh-aixterm:diagnostic-profiles:v1",
+  "title": "DSH Aixterm diagnostic profile or bundle v1",
+  "description": "Structural validation. Runtime additionally enforces unique IDs, template context, reserved IDs, aggregate timeout/output and library byte limits.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/profile"
+    },
+    {
+      "$ref": "#/$defs/bundle"
+    }
+  ],
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "pattern": "^[^\\u0000]*$",
+          "default": ""
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "os": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "linux"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true
+            },
+            "transport": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "ssh",
+                  "serial",
+                  "telnet"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 3,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "os",
+            "transport"
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input"
+          },
+          "minItems": 0,
+          "maxItems": 8
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/commandCheck"
+              },
+              {
+                "$ref": "#/$defs/terminalCheck"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 12
+        },
+        "analysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "instructions": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 8000,
+              "pattern": "^[^\\u0000]*$",
+              "default": ""
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "name",
+        "target",
+        "checks"
+      ]
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profile"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "profiles"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "default": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000\\r\\n]*$",
+          "default": ""
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "commandCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "type": {
+          "const": "command",
+          "default": "command"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 15000,
+          "default": 5000
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 32768,
+          "default": 16384
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "command"
+      ]
+    },
+    "terminalCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "type": {
+          "const": "terminal"
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 32768,
+          "default": 12000
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type"
+      ]
+    }
+  }
+}

@@ -37,7 +37,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Managed SSH keys** — generate ed25519 or import existing private keys; sessions reference them by name. Keys live under `<dataDir>/keys` with mode 600.
 - **Telnet sessions** — telnet `host:port` with IAC negotiation in the same terminal UI (SSH-only panels stay hidden).
 - **Terminal type (TERM)** — settings pick the emulated terminal type (xterm-256color, xterm, vt100, vt220, linux, screen, ansi, …) applied to new SSH and local shells.
-- **Connection header** — SSH terminals show a MobaXterm-style banner (target, Direct SSH, compression, X11, tmux) plus the server pre-auth banner and the shell welcome text, instead of wiping them on startup.
+- **Connection header** — separates the server pre-authentication banner, aligned connection details and the original shell welcome. Compression reflects the negotiated algorithms (compression preferred, with a none fallback). Ordinary login sends no initialization commands, never switches to bash, and never rewrites PS1. Directory following uses the remote shell's existing OSC 7 reporting; otherwise SFTP remains manually navigable.
 - **Serial sessions** — open local serial ports (device path, baud rate, data/stop bits, parity) in the same terminal UI as SSH.
 - **X11 forwarding** — optional per-session forwarding to the local X server (needs `xauth` on the server and `DISPLAY` locally).
 - **ZMODEM** — remote `sz` downloads save to disk automatically; remote `rz` opens a local file picker (powered by zmodem.js).
@@ -54,6 +54,16 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
 
 ## Install
+
+### Device diagnostics and host platforms
+
+**User-defined diagnostic profiles** are available through “管理 / 导入导出”: create profiles, copy built-ins, edit parameters and ordered steps, set timeout/output limits, and customize AI analysis guidance. Import/export a single profile or JSON bundle. Imports execute nothing and preserve existing profiles on ID conflicts. Custom SSH commands require an explicit rendered preview confirmation; agent execution asks for approval. [Protocol and examples](docs/diagnostic-profiles.md) · [JSON Schema](docs/diagnostic-profile.schema.json).
+
+Open **🩺 设备排障** in the connected session's tool rail, choose boot, service (requires a service name), or storage diagnostics, then collect. Each check exposes its command, timestamp and raw output. Missing tools, permission errors, timeouts and truncated output are marked as incomplete evidence. Review the report before clicking **交给 AI 分析** to send it to the existing main conversation. No repairs run automatically.
+
+The DSH host can run on **Windows, Linux or macOS** with **Node 20+**, matching the serial dependency's minimum. Collection uses Node SSH APIs, never host Linux commands. Active checks currently target remote **Linux / BusyBox** and detect the target OS first; missing systemd tools are reported with available fallback evidence. Serial and Telnet sessions only read existing terminal output, without sending commands. Host serial names such as `COM3`, `/dev/ttyUSB0` and `/dev/cu.*` are treated as opaque identifiers; absent logs are reported explicitly.
+
+Agents can use `aixterm_diagnose` with `session` (id or exact name), `scenario` (`boot`, `service`, `storage`), and optional `service` / `terminalId`. CI is configured to test and build on all three host platforms; local validation covers the actual execution host. Native terminal/serial dependencies require a Node runtime matching the host OS and CPU architecture.
 
 Use the bundled `dsh` CLI. Replace `<profile>` with your profile name (`desktop` for the app, `web` for `dsh web`, …).
 

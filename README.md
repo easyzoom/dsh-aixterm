@@ -35,6 +35,7 @@ SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human an
 - **Session import/export** — export JSON (round-trip) or MobaXterm `.mxtsessions`; import Xshell `.xsh`, MobaXterm and this plugin's JSON. Secrets are excluded and jump hosts are kept by name.
 - **Managed SSH keys** — generate ed25519 or import existing private keys; sessions reference them by name. Keys live under `<dataDir>/keys` with mode 600.
 - **Telnet sessions** — telnet `host:port` with IAC negotiation in the same terminal UI (SSH-only panels stay hidden).
+- **Terminal type (TERM)** — settings pick the emulated terminal type (xterm-256color, xterm, vt100, vt220, linux, screen, ansi, …) applied to new SSH and local shells.
 - **Serial sessions** — open local serial ports (device path, baud rate, data/stop bits, parity) in the same terminal UI as SSH.
 - **X11 forwarding** — optional per-session forwarding to the local X server (needs `xauth` on the server and `DISPLAY` locally).
 - **ZMODEM** — remote `sz` downloads save to disk automatically; remote `rz` opens a local file picker (powered by zmodem.js).

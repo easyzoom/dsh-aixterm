@@ -2332,6 +2332,16 @@ function AixtermApp({ hostCtx }) {
     })();
   }, []);
 
+  async function setTermType(value) {
+    try {
+      const d = await postJson("/settings", { termType: value });
+      if (d && d.ok) setTermSettings((prev) => ({ ...prev, termType: value }));
+      else setTermSettingsMsg({ kind: "err", text: (d && d.error) || "保存失败" });
+    } catch (e) {
+      setTermSettingsMsg({ kind: "err", text: String(e) });
+    }
+  }
+
   async function saveTermSettings() {
     setTermSettingsMsg(null);
     try {
@@ -3926,6 +3936,14 @@ function AixtermApp({ hostCtx }) {
                       onChange={(e) => updatePrefs({ suggestions: e.target.checked })}
                     />
                     <span>{tr("命令历史模糊建议（交互式程序中自动隐藏）", "Fuzzy command suggestions (hidden in full-screen programs)")}</span>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <span style={S.muted}>{tr("终端类型（TERM）", "Terminal type (TERM)")}</span>
+                    <select style={S.input} value={termSettings.termType || "xterm-256color"} onChange={(e) => setTermType(e.target.value)}>
+                      {["xterm-256color", "xterm", "vt100", "vt220", "linux", "screen", "screen-256color", "ansi", "dumb"].map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
                   </label>
                 </>
               ) : null}

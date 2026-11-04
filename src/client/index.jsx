@@ -357,10 +357,6 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
         copySelection();
         return false;
       }
-      if (e.type === "keydown" && e.ctrlKey && e.shiftKey && String(e.key).toLowerCase() === "v") {
-        pasteClipboard();
-        return false;
-      }
       if (e.type === "keydown" && e.ctrlKey && !e.shiftKey && String(e.key).toLowerCase() === "f") {
         setFindOpen(true);
         return false;
@@ -709,16 +705,38 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
     setSuggestion(null);
   }
 
+  function execCopy(text) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
   function copySelection() {
     try {
       const sel = termRef.current && termRef.current.getSelection();
-      if (sel) {
+      if (!sel) {
+        showNotice(tr("未选中内容", "Nothing selected"));
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard
           .writeText(sel)
           .then(() => showNotice(tr("已复制", "Copied")))
-          .catch(() => showNotice(tr("复制失败（剪贴板被拒绝）", "Copy failed (clipboard denied)")));
+          .catch(() => showNotice(execCopy(sel) ? tr("已复制", "Copied") : tr("复制失败", "Copy failed")));
       } else {
-        showNotice(tr("未选中内容", "Nothing selected"));
+        showNotice(execCopy(sel) ? tr("已复制", "Copied") : tr("复制失败", "Copy failed"));
       }
     } catch {
       showNotice(tr("复制失败", "Copy failed"));
@@ -727,13 +745,17 @@ function TerminalPane({ terminalId, sessionId, active, visible = true, onCwd, on
 
   async function pasteClipboard() {
     try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        showNotice(tr("请用 Ctrl+Shift+V 粘贴", "Use Ctrl+Shift+V to paste"));
+        return;
+      }
       const text = await navigator.clipboard.readText();
       if (text) {
         postJson("/term/input", { terminalId, data: text }).catch(() => {});
         showNotice(tr("已粘贴", "Pasted"));
       }
     } catch {
-      showNotice(tr("粘贴失败（剪贴板被拒绝）", "Paste failed (clipboard denied)"));
+      showNotice(tr("请用 Ctrl+Shift+V 粘贴", "Use Ctrl+Shift+V to paste"));
     }
   }
 

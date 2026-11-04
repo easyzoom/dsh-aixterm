@@ -1,118 +1,107 @@
-[English](README.md) | [简体中文](README.zh.md)
+# dsh-aixterm
 
-[![npm](https://img.shields.io/badge/npm-unpublished-lightgrey?logo=npm&logoColor=white)](#install)
+> **The next-generation AI-native SSH terminal** — a terminal that thinks, acts, and *sees*.
+
 [![pnpm](https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-536DFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/easyzoom/dsh-aixterm/actions/workflows/ci.yml/badge.svg)](https://github.com/easyzoom/dsh-aixterm/actions/workflows/ci.yml)
 
-![dsh-aixterm banner](https://raw.githubusercontent.com/easyzoom/dsh-aixterm/main/docs/images/banner.svg)
+Xshell, MobaXterm and WindTerm are excellent — but they share the same ceiling: **they're "dumb" tools**. Connect, type, transfer files. That's it. When something breaks, you still stare at the screen, search docs, and debug by hand.
 
-# dsh-aixterm
+**dsh-aixterm breaks that ceiling.** AI is woven into every corner of the terminal: it works in the same session as you, reads your command history, understands your error screenshots, drives dozens of machines in parallel, and jumps into the main conversation to help when you ask.
 
-SSH / SFTP session manager for **DeepSeek Harness** — **shared by the human and the AI agent**. The human uses a sidebar page; the agent uses tools; both drive the **same saved sessions** and the **same per-session command log**, so each side sees exactly what the other did.
+> In one line: **hand the terminal to AI.**
 
-## Features (v0.1)
+---
 
-- **Saved SSH sessions** — password / private-key / ssh-agent, named and grouped.
-- **Sidebar page** (under Plugins) with a connection list and real **xterm.js terminals**: multiple tabs, SSH and local shells, full keyboard, resize, scrollback and clickable links.
-- **SFTP file browser** — browse remote directories, **drag-and-drop upload** and one-click **download**.
-- **Shared interactive terminal (human + agent)** — the agent opens the same PTY with `aixterm_term_open` and reads/sends with `aixterm_term_read` / `aixterm_term_send`.
-- **Shared log (human + agent)** — every one-shot run, from the UI (`source: human`) or a tool (`source: agent`), is recorded with command, output, exit code and time.
-- **Agent tools** — `aixterm_list_sessions`, `aixterm_run`, `aixterm_sftp_list`, `aixterm_test`, and the terminal trio above.
-- **Secrets encrypted at rest** — passwords / key passphrases are AES-256-GCM encrypted in the data dir.
-- **Port forwarding** — local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`), with jump hosts and shared connections.
-- **Full SFTP management** — mkdir / rename / delete / chmod, inline text editor, and a panel that follows the terminal's cwd.
-- **Tool panels** — the right rail is an icon tab bar (Files, Resource monitor, Network/System/Process/Logs/Forwarding/Diagnostics) that stays visible on the far right; collapsing only hides the content area, and clicking an icon re-expands it. Any tool can be **popped out** as a draggable floating window; the active icon gets a clear highlight bar.
-- **Resource monitor** — CPU, memory, load, disk and network rates for the active session.
-- **Collapsible side panels** — the session list (left) and the monitor/SFTP column (right) collapse to a slim icon strip and restore with one click, remembered across reloads.
-- **Split view** — single, two panes side by side, two panes stacked, or a 2×2 quad grid; the tab-bar button cycles the layouts and every extra pane picks its terminal from a dropdown.
-- **Command history and fuzzy suggestions** — commands typed in a terminal are recorded per session (persisted, deduplicated); typing a prefix shows up to five history matches and Tab completes the first one. Suggestions are hidden automatically in full-screen programs (alternate screen: vim, top, less …).
-- **Line-number / timestamp gutter** — optional left gutter showing buffer line numbers, wall-clock timestamps, or both; it follows scrolling and is per-terminal.
-- **Comfort features** — session search and duplicate, terminal find (`Ctrl+F`), copy/paste with a status toast and `Ctrl+Shift+C` / `Ctrl+Shift+V` shortcuts, context menu (copy/paste/find/download log/clear screen/clear scrollback/reset terminal), five colour themes, font family/size/line height, keyword highlighting (custom patterns + colours), broadcast input, log export (txt/HTML).
-- **Auto-reconnect** — terminals reconnect with exponential backoff after a drop.
-- **Danger-command approval** — agent-initiated `aixterm_run` / `aixterm_term_send` calls matching a configurable pattern list wait for the human's approval, and fail closed when no approval surface exists.
-- **Credential references** — a session may name a dsh credential-service key (`credentialEnv`) instead of storing a password.
-- **Session import/export** — export JSON (round-trip) or MobaXterm `.mxtsessions`; import Xshell `.xsh`, MobaXterm and this plugin's JSON. Secrets are excluded and jump hosts are kept by name.
-- **Managed SSH keys** — generate ed25519 or import existing private keys; sessions reference them by name. Keys live under `<dataDir>/keys` with mode 600.
-- **Telnet sessions** — telnet `host:port` with IAC negotiation in the same terminal UI (SSH-only panels stay hidden).
-- **Terminal type (TERM)** — settings pick the emulated terminal type (xterm-256color, xterm, vt100, vt220, linux, screen, ansi, …) applied to new SSH and local shells.
-- **Connection header** — separates the server pre-authentication banner, aligned connection details and the original shell welcome. Compression reflects the negotiated algorithms (compression preferred, with a none fallback). Ordinary login sends no initialization commands, never switches to bash, and never rewrites PS1. Directory following uses the remote shell's existing OSC 7 reporting; otherwise SFTP remains manually navigable.
-- **Serial sessions** — open local serial ports (device path, baud rate, data/stop bits, parity) in the same terminal UI as SSH.
-- **X11 forwarding** — optional per-session forwarding to the local X server (needs `xauth` on the server and `DISPLAY` locally).
-- **ZMODEM** — remote `sz` downloads save to disk automatically; remote `rz` opens a local file picker (powered by zmodem.js).
-- **AI assistant panel (main-session centred)** — the panel is the main dsh conversation: send questions (paste or attach screenshots), watch replies, tool calls and errors stream live, pick or create the target session (workspace + agent preset), and jump to it in the main workspace with ↗. The main agent handles everything — tools, approvals and session history are identical to the main UI. Right-click a terminal → **AI 提问** opens a small floating composer (selected terminal text is attached automatically): pick the target conversation from the dropdown (default: current/default), or explicitly choose ＋ New session — a new session uses the dsh default model, adjustable in the main UI. Settings → **AI** chooses whether AI questions follow the main session model (default) or force a specific provider/model before each question, picked from dropdowns populated from the harness model catalog (the main UI reflects the switch). The provider/model selectors appear only when the override option is chosen.
-- **Scrollback persistence** — toggle saving and set the directory in the settings panel; when saving is off only an in-memory circular buffer is kept. Its line count is configurable (100–100,000, default 2,000).
-- **`@`-session analysis for agents** — `aixterm_read_log` / `aixterm_analyze` accept a session name, letting the agent analyze a terminal the conversation references with `@<name>`.
-- **Lock screen, master password and idle auto-lock** — set a master password (scrypt) to lock the panel manually or after N idle minutes; every API except the lock endpoints returns 423 while locked.
-- **Wide session import** — auto-detects Xshell `.xsh`, MobaXterm `.mxtsessions`, SecureCRT `.ini`, WindTerm, FinalShell, Termius, Electerm and NyaTerm JSON, plus this plugin's own export.
-- **Richer monitor** — CPU, memory, load, disk, network rates plus hostname, kernel, uptime, logged-in users and (when available) SoC temperature.
-- **tmux integration** — list, create and kill remote tmux sessions; opening a terminal attaches (or creates) a named session so the shell survives reconnects; `aixterm_tmux_sessions` exposes the list to agents.
-- **Right-click session menu** — connect, disconnect, edit configuration, duplicate, tmux, port forwarding, log export, test and delete all live in one context menu instead of row icons. The list is compact (hover a session for name/address/group/status) and groups connected sessions under a leading **Active** section, with the rest kept in their own groups.
-- **Macros** — record the commands typed in a terminal, save them as a named macro, and replay them in order (configurable delay) in any session; edit or delete them from the macro panel.
-- **Transfer queue** — uploads and downloads run through a queue with progress, live speed, pause/resume, cancel, retry, resume-from-offset, duplicate handling (overwrite / skip / rename) and timestamp preservation (mtime kept on both sides).
-- **Configurable data dir** — session files, the encryption key and terminal scrollback logs share one directory (plugin config `dataDir`, default `$DSH_HOME/aixterm`).
+## ✨ Highlights
 
-## Install
+### 🤖 AI-native (what separates it from every traditional terminal)
 
-### Device diagnostics and host platforms
+| Capability | What it does |
+|---|---|
+| **AI assistant panel** | A live mirror of the dsh main session: ask, watch replies, tool calls and errors stream in |
+| **Right-click AI ask** | Select terminal text, right-click, ask — the selection is attached automatically |
+| **Vision** | Paste/attach a screenshot and AI literally *reads* the error, chart or UI |
+| **Batch operations** | One command / one macro across all servers (dangerous ones get one batch approval) |
+| **`@` session analysis** | `@session` in chat; AI reads its history, output and resource state |
+| **Context-aware Q&A** | AI sees the session, cwd, recent commands and terminal output |
 
-**User-defined diagnostic profiles** are available through “管理 / 导入导出”: create profiles, copy built-ins, edit parameters and ordered steps, set timeout/output limits, and customize AI analysis guidance. Import/export a single profile or JSON bundle. Imports execute nothing and preserve existing profiles on ID conflicts. Custom SSH commands require an explicit rendered preview confirmation; agent execution asks for approval. [Protocol and examples](docs/diagnostic-profiles.md) · [JSON Schema](docs/diagnostic-profile.schema.json).
+### 🔌 Every protocol
 
-Open **🩺 设备排障** in the connected session's tool rail, choose boot, service (requires a service name), or storage diagnostics, then collect. Each check exposes its command, timestamp and raw output. Missing tools, permission errors, timeouts and truncated output are marked as incomplete evidence. Review the report before clicking **交给 AI 分析** to send it to the existing main conversation. No repairs run automatically.
+- **SSH / Telnet / Serial** in one UI
+- Multi-tab + **split view** (side-by-side / stacked / 2×2 quad)
+- **Port forwarding** (`-L` / `-R` / SOCKS5 `-D`), **jump hosts**, **auto-reconnect**, **tmux**
 
-The DSH host can run on **Windows, Linux or macOS** with **Node 20+**, matching the serial dependency's minimum. Collection uses Node SSH APIs, never host Linux commands. Active checks currently target remote **Linux / BusyBox** and detect the target OS first; missing systemd tools are reported with available fallback evidence. Serial and Telnet sessions only read existing terminal output, without sending commands. Host serial names such as `COM3`, `/dev/ttyUSB0` and `/dev/cu.*` are treated as opaque identifiers; absent logs are reported explicitly.
+### 📁 Files (SFTP)
 
-Agents can use `aixterm_diagnose` with `session` (id or exact name), `scenario` (`boot`, `service`, `storage`), and optional `service` / `terminalId`. CI is configured to test and build on all three host platforms; local validation covers the actual execution host. Native terminal/serial dependencies require a Node runtime matching the host OS and CPU architecture.
+- Browse / upload / download / mkdir / rename / delete / chmod / **inline edit**
+- **Transfer queue**: progress, live speed, pause / resume / cancel / retry, resume-from-offset, duplicate handling, timestamp preservation
+- **Follow the terminal's cwd**
 
-Use the bundled `dsh` CLI. Replace `<profile>` with your profile name (`desktop` for the app, `web` for `dsh web`, …).
+### 📊 Resource monitor
+
+CPU, memory, load, disk, network rate, SoC temperature, uptime, logged-in users, SSH sessions — machine state at a glance.
+
+### 🛠 Tool panel
+
+Icon rail: Files · Monitor · Network · System · Processes · Logs · Forwarding · Diagnostics. Any tool can be **popped out** as a draggable floating window.
+
+### 🧩 Terminal experience
+
+- Five colour themes, font / size / line height
+- **Keyword highlighting** (custom patterns + colours)
+- **Line-number / timestamp gutter**
+- **Fuzzy command suggestions** (auto-hidden in full-screen programs)
+- **Macro record/replay**, **ZMODEM**, **X11 forwarding**
+
+### 🔐 Security
+
+- **Master password / lock screen / idle auto-lock**
+- **Danger-command approval** (agent `rm` / `dd` / `reboot` … asks first, fail-closed)
+- **Credential references** (keys live in the dsh credential service, never in plain config)
+- **SSH key management** (generate / import / fingerprint)
+
+### 🌍 Painless migration
+
+Import sessions from **Xshell / MobaXterm / SecureCRT / WindTerm / FinalShell / Termius / Electerm / NyaTerm**; export JSON or MobaXterm format.
+
+---
+
+## ⚡ Quick start
 
 ```bash
-# 1) git source (main channel)
-dsh plugin --profile <profile> add "github:easyzoom/dsh-aixterm#main"
+# 1) install into the dsh web profile from source
+dsh plugin --profile web add /path/to/dsh-aixterm
 
-# 2) npm (once published to npm)
-dsh plugin --profile <profile> add dsh-aixterm
-
-# 3) local dev (a checkout of this repo)
-dsh plugin --profile <profile> add /path/to/dsh-aixterm
+# 2) open dsh web and go to the "SSH sessions" page
+# 3) create an SSH / Telnet / serial session, or import from another client
 ```
 
-Notes:
-- The **desktop profile is locked by the running app** — close DeepSeek Harness before a CLI install.
-- The git source works for a private repo too when your git credentials are set.
-- The npm command requires the package to be published first.
+Requires Node ≥ 18; run `npm install` in the plugin directory first (`ssh2`, `node-pty`, `serialport`, `zmodem.js`).
 
-## Using it from the chat
+## 🤖 Use it from the chat
 
-The plugin registers an embedded **aixterm** skill and a set of tools, so the dsh conversation can drive terminals directly:
+The plugin registers an embedded skill and a set of tools so the dsh conversation can drive terminals:
 
-- `@test 看看最近报了什么错` → `aixterm_read_log` / `aixterm_analyze`
-- `在 test 上执行 df -h` → `aixterm_run` (dangerous commands ask for approval)
-- `把 test 的资源情况汇总一下` → `aixterm_analyze`
-- `帮我加一个到 10.0.0.5 的会话，用户 root` → `aixterm_create_session`
-- `test 上有哪些 tmux 会话` → `aixterm_tmux_sessions`
-- `在 test 的终端里执行 make` → `aixterm_term_send` with `session` (writes to the open terminal, no terminalId needed)
-- `所有 SSH 服务器执行 uptime` → `aixterm_run_all` (one batch approval for dangerous commands)
-- `把 deploy 宏在所有机器上跑一遍` → `aixterm_run_macro`
-- `看看 AI 面板刚才怎么说的` → `aixterm_ai_history`
+```
+@test what broke recently               → history + output + resources
+run df -h on test                       → execute (dangerous commands auto-approve)
+summarize test's resources              → monitor snapshot analysis
+add a session for 10.0.0.5 user root    → create a session
+list tmux sessions on test              → tmux listing
+run uptime on all servers               → batch execution (one approval)
+replay the deploy macro everywhere      → batch macro
+```
 
-Tools accept a session id **or exact name**, so `@<session name>` references work. The AI panel history is shared with the chat.
+---
 
-## Usage
+## 📂 Data & configuration
 
-1. Open the sidebar **SSH 会话** page → **+ 新建** → fill in host / port / user / auth → save. The session opens in a terminal tab.
-2. Or click **本地终端** for a local shell (PowerShell / `$SHELL`).
-3. For an SSH tab, the **文件 (SFTP)** panel on the right lists the home directory. Click a folder to enter it; **drag files onto the panel** to upload; click **↓** to download.
-4. The agent can open the same interactive terminal with `aixterm_term_open` and read/send with `aixterm_term_read` / `aixterm_term_send` — the human sees the same screen. One-shot commands use `aixterm_run` and appear in the shared log with a **人 / AI** badge.
+- Sessions / keys / macros / history / transfers live under `$DSH_HOME/aixterm/`
+- Settings are paginated: Display / AI / Highlighting / Security / Storage / About
+- Language: 中文 / English
 
-## Data & security
+## 📄 License
 
-- Sessions live in `$DSH_HOME/aixterm` (`sessions.json`); the AES key in `.aixterm.key`; terminal scrollback logs in `terminals/`. Treat that directory as sensitive.
-- Set the plugin's `dataDir` option to store all of the above elsewhere.
-- Host routes are served by DSH's web server (loopback); add your own reverse-proxy trust / auth if exposed.
-- Prefer **private keys** over stored passwords; passwords are encrypted but the key sits in the same data dir.
-
-## License
-
-MIT
+[MIT](LICENSE) · by [easyzoom](https://github.com/easyzoom)

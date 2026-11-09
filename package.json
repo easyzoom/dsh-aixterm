@@ -1,6 +1,6 @@
 {
   "name": "dsh-aixterm",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "SSH/SFTP session manager and terminal for DeepSeek Harness, shared by the human and the AI agent.",
   "type": "module",
   "main": "lib/index.js",

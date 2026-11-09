@@ -69,7 +69,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "node-pty": "^1.1.0",
+    "node-pty": "1.2.0-beta.18",
     "serialport": "^13.0.0",
     "ssh2": "^1.17.0",
     "string-width": "^7.2.0",

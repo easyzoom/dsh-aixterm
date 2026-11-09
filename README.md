@@ -1,8 +1,12 @@
 # dsh-aixterm
 
+English · [简体中文](README.zh.md)
+
+![dsh-aixterm — shared SSH/SFTP sessions for humans and AI](docs/images/banner.svg)
+
 > **The next-generation AI-native SSH terminal** — a terminal that thinks, acts, and *sees*.
 
-[![pnpm](https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-536DFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -52,7 +56,7 @@ Icon rail: Files · Monitor · Network · System · Processes · Logs · Forward
 - Five colour themes, font / size / line height
 - **Colorful SSH banners by default**: title, target and status colors; disable in Settings → Display for new terminals.
 - **Built-in keyword colors by default**: errors red, warnings yellow, success green and info blue; independently disable in Settings → Highlighting or add custom rules. Original remote colors take priority; alternate-screen apps and output/log bytes remain unchanged.
-- **Line-number / timestamp gutter**
+- **Line-number / timestamp gutter** with local-time millisecond precision (`HH:mm:ss.SSS`); timestamps reflect terminal output processing, not remote event time.
 - **Fuzzy command suggestions** (auto-hidden in full-screen programs)
 - **Macro record/replay**, **ZMODEM**, **X11 forwarding**
 
@@ -67,19 +71,40 @@ Icon rail: Files · Monitor · Network · System · Processes · Logs · Forward
 
 Import sessions from **Xshell / MobaXterm / SecureCRT / WindTerm / FinalShell / Termius / Electerm / NyaTerm**; export JSON or MobaXterm format.
 
+### 🩺 Custom diagnostics
+
+Create, edit, copy, import and export diagnostic profiles with parameters, ordered steps, timeouts, output limits and AI analysis guidance. Custom SSH commands require confirmation before execution; serial and Telnet diagnostics read existing terminal output. Active remote checks currently target Linux / BusyBox.
+
+See the [profile format and protocol](docs/diagnostic-profiles.md), [JSON Schema](docs/diagnostic-profile.schema.json) and [importable examples](docs/examples/diagnostic-profiles.json).
+
 ---
 
 ## ⚡ Quick start
 
 ```bash
-# 1) install into the dsh web profile from source
+# 1) install locked dependencies and build in the plugin directory
+cd /path/to/dsh-aixterm
+npm ci
+npm run build
+
+# 2) install into the dsh web profile from source
 dsh plugin --profile web add /path/to/dsh-aixterm
 
-# 2) open dsh web and go to the "SSH sessions" page
-# 3) create an SSH / Telnet / serial session, or import from another client
+# 3) open dsh web and go to the "SSH sessions" page
+# 4) create an SSH / Telnet / serial session, or import from another client
 ```
 
-Requires Node ≥ 18; run `npm install` in the plugin directory first (`ssh2`, `node-pty`, `serialport`, `zmodem.js`).
+Requires **Node.js ≥ 20** and dsh with the web profile. Windows, Linux and macOS hosts use the same source installation steps. Native dependencies (`node-pty` and `serialport`) use platform binaries where available; unsupported platforms may require local build tools. Install dependencies on the target host rather than copying `node_modules` across operating systems.
+
+### Development checks
+
+```bash
+npm ci
+npm test
+npm run build
+```
+
+CI runs tests and the client build on `ubuntu-latest`, `windows-latest` and `macos-latest` with Node.js 20. Keep `package-lock.json` synchronized with dependency changes. `node-pty` is pinned to `1.2.0-beta.18` to include executable macOS spawn helpers; regression tests check these permissions and retries for malformed generated SSH keys.
 
 ## 🤖 Use it from the chat
 
@@ -102,6 +127,10 @@ replay the deploy macro everywhere      → batch macro
 - Sessions / keys / macros / history / transfers live under `$DSH_HOME/aixterm/`
 - Settings are paginated: Display / AI / Highlighting / Security / Storage / About
 - Language: 中文 / English
+
+## 🗺 Roadmap
+
+[Technical roadmap](docs/tools-roadmap.md): OTP management and SSH authentication integration are planned, including TOTP / HOTP, issuer, username, secret, SHA-1 / SHA-256 / SHA-512, digits, TOTP period and HOTP counter. These capabilities are not yet implemented.
 
 ## 📄 License
 

@@ -1,8 +1,12 @@
 # dsh-aixterm
 
+[English](README.md) · 简体中文
+
+![dsh-aixterm — 人与 AI 共享的 SSH/SFTP 会话](docs/images/banner.svg)
+
 > **下一代 AI 原生 SSH 终端** —— 一个会思考、会动手、会看图的终端。
 
-[![pnpm](https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-536DFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -52,7 +56,7 @@ CPU、内存、负载、磁盘、网络速率、SoC 温度、开机时长、登�
 - 五套配色主题、字体 / 字号 / 行高
 - **默认彩色 SSH 横幅**：标题、地址、连接状态分色显示；设置 → 显示可关闭，新建终端生效。
 - **默认关键词高亮**：错误红、警告黄、成功绿、信息蓝；设置 → 高亮可独立关闭，也可添加自定义规则。保留远端原有颜色，不影响 vim/top 等备用屏幕，不修改输出或日志。
-- **行号 / 时间戳 gutter**
+- **行号 / 时间戳侧栏**：本地时间显示到毫秒（`HH:mm:ss.SSS`），记录终端处理输出的时间，不代表远端事件发生时间。
 - **命令历史模糊建议**（交互式程序中自动隐藏）
 - **宏录制与回放**、**ZMODEM**、**X11 转发**
 
@@ -67,19 +71,40 @@ CPU、内存、负载、磁盘、网络速率、SoC 温度、开机时长、登�
 
 一键导入 **Xshell / MobaXterm / SecureCRT / WindTerm / FinalShell / Termius / Electerm / NyaTerm** 的会话；导出 JSON 或 MobaXterm 格式。
 
+### 🩺 自定义诊断
+
+支持新建、编辑、复制、导入和导出诊断方案，可配置参数、有序步骤、超时、输出上限及 AI 分析重点。自定义 SSH 命令执行前需确认；串口和 Telnet 诊断读取已有终端输出。主动远端检查目前面向 Linux / BusyBox。
+
+参见[方案格式与协议](docs/diagnostic-profiles.md)、[JSON Schema](docs/diagnostic-profile.schema.json)和[可导入示例](docs/examples/diagnostic-profiles.json)。
+
 ---
 
 ## ⚡ 快速开始
 
 ```bash
-# 1) 从源码安装到 dsh 的 web profile
+# 1) 在插件目录安装锁定的依赖并构建
+cd /path/to/dsh-aixterm
+npm ci
+npm run build
+
+# 2) 从源码安装到 dsh 的 web profile
 dsh plugin --profile web add /path/to/dsh-aixterm
 
-# 2) 打开 dsh web，进入「SSH 会话」页面
-# 3) 新建 SSH / Telnet / 串口会话，或导入现有客户端配置
+# 3) 打开 dsh web，进入「SSH 会话」页面
+# 4) 新建 SSH / Telnet / 串口会话，或导入现有客户端配置
 ```
 
-需要 Node ≥ 18；首次在插件目录 `npm install` 安装依赖（`ssh2` / `node-pty` / `serialport` / `zmodem.js`）。
+需要 **Node.js ≥ 20** 及启用 web profile 的 dsh。Windows、Linux、macOS 宿主使用相同的源码安装步骤。原生依赖（`node-pty`、`serialport`）优先使用可用的平台二进制；未提供预编译包的平台可能需要本地编译工具。请在目标宿主安装依赖，不要跨操作系统复制 `node_modules`。
+
+### 开发验证
+
+```bash
+npm ci
+npm test
+npm run build
+```
+
+CI 使用 Node.js 20，在 `ubuntu-latest`、`windows-latest`、`macos-latest` 上运行测试和前端构建。调整依赖时需同步更新 `package-lock.json`。当前将 `node-pty` 固定为 `1.2.0-beta.18`，以包含具有执行权限的 macOS spawn helper；回归测试覆盖该权限及无效 SSH 密钥生成后的重试。
 
 ## 🤖 在对话中使用
 
@@ -102,6 +127,10 @@ test 上有哪些 tmux 会话              → tmux 列表
 - 会话 / 密钥 / 宏 / 历史 / 传输记录存于 `$DSH_HOME/aixterm/`
 - 设置面板分页：显示 / AI / 高亮 / 安全 / 存储 / 关于
 - 语言：中文 / English
+
+## 🗺 后续路线
+
+[技术路线图](docs/tools-roadmap.md)已规划 OTP 管理与 SSH 认证集成，包括 TOTP / HOTP、issuer、username、secret、SHA-1 / SHA-256 / SHA-512、位数、TOTP 周期及 HOTP 计数器。这些能力尚未实现。
 
 ## 📄 License
 

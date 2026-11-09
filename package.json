@@ -28,6 +28,7 @@
     "docs/diagnostic-profiles.md",
     "docs/diagnostic-profile.schema.json",
     "docs/examples",
+    "docs/images",
     "LICENSE"
   ],
   "keywords": [

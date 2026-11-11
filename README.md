@@ -7,6 +7,7 @@ English · [简体中文](README.zh.md)
 > **The next-generation AI-native SSH terminal** — a terminal that thinks, acts, and *sees*.
 
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![npm](https://img.shields.io/npm/v/dsh-aixterm?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-aixterm)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-536DFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -79,22 +80,36 @@ See the [profile format and protocol](docs/diagnostic-profiles.md), [JSON Schema
 
 ---
 
-## ⚡ Quick start
+## ⚡ Install
+
+Install into a dsh profile — `<profile>` is `desktop` for the app, `web` for `dsh web`.
+
+### From npm (recommended)
 
 ```bash
-# 1) install locked dependencies and build in the plugin directory
+dsh plugin --profile <profile> add dsh-aixterm
+```
+
+### From GitHub
+
+```bash
+dsh plugin --profile <profile> add "github:easyzoom/dsh-aixterm#main"
+```
+
+### From a local checkout (development)
+
+```bash
 cd /path/to/dsh-aixterm
 npm ci
 npm run build
-
-# 2) install into the dsh web profile from source
-dsh plugin --profile web add /path/to/dsh-aixterm
-
-# 3) open dsh web and go to the "SSH sessions" page
-# 4) create an SSH / Telnet / serial session, or import from another client
+dsh plugin --profile <profile> add /path/to/dsh-aixterm
 ```
 
-Requires **Node.js ≥ 20** and dsh with the web profile. Windows, Linux and macOS hosts use the same source installation steps. Native dependencies (`node-pty` and `serialport`) use platform binaries where available; unsupported platforms may require local build tools. Install dependencies on the target host rather than copying `node_modules` across operating systems.
+Then restart DeepSeek Harness (or reload the web page) and open the **SSH sessions** sidebar page; create an SSH / Telnet / serial session or import one from another client.
+
+Notes:
+- Close the DeepSeek Harness desktop app before installing into the `desktop` profile — the running app locks the profile.
+- Requires **Node.js ≥ 20** and a dsh build with the web UI. Native dependencies (`node-pty`, `serialport`) use platform binaries where available; unsupported platforms may need local build tools. Install dependencies on the target host instead of copying `node_modules` across operating systems.
 
 ### Development checks
 

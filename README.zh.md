@@ -7,6 +7,7 @@
 > **下一代 AI 原生 SSH 终端** —— 一个会思考、会动手、会看图的终端。
 
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![npm](https://img.shields.io/npm/v/dsh-aixterm?logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-aixterm)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-536DFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -79,22 +80,36 @@ CPU、内存、负载、磁盘、网络速率、SoC 温度、开机时长、登�
 
 ---
 
-## ⚡ 快速开始
+## ⚡ 安装
+
+把插件装进 dsh 的某个 profile —— `<profile>` 桌面端用 `desktop`，`dsh web` 用 `web`。
+
+### 从 npm 安装（推荐）
 
 ```bash
-# 1) 在插件目录安装锁定的依赖并构建
+dsh plugin --profile <profile> add dsh-aixterm
+```
+
+### 从 GitHub 安装
+
+```bash
+dsh plugin --profile <profile> add "github:easyzoom/dsh-aixterm#main"
+```
+
+### 本地源码安装（开发）
+
+```bash
 cd /path/to/dsh-aixterm
 npm ci
 npm run build
-
-# 2) 从源码安装到 dsh 的 web profile
-dsh plugin --profile web add /path/to/dsh-aixterm
-
-# 3) 打开 dsh web，进入「SSH 会话」页面
-# 4) 新建 SSH / Telnet / 串口会话，或导入现有客户端配置
+dsh plugin --profile <profile> add /path/to/dsh-aixterm
 ```
 
-需要 **Node.js ≥ 20** 及启用 web profile 的 dsh。Windows、Linux、macOS 宿主使用相同的源码安装步骤。原生依赖（`node-pty`、`serialport`）优先使用可用的平台二进制；未提供预编译包的平台可能需要本地编译工具。请在目标宿主安装依赖，不要跨操作系统复制 `node_modules`。
+然后重启 DeepSeek Harness（或刷新网页），打开 **SSH 会话** 侧边栏页面；新建 SSH / Telnet / 串口会话，或从其他客户端导入。
+
+说明：
+- 安装到 `desktop` profile 前请先关闭 DeepSeek Harness，运行中的应用会占用该 profile。
+- 需要 **Node.js ≥ 20** 及带 Web UI 的 dsh。原生依赖（`node-pty`、`serialport`）优先使用可用的平台二进制；未提供预编译包的平台可能需要本地编译工具。请在目标宿主安装依赖，不要跨操作系统复制 `node_modules`。
 
 ### 开发验证
 
